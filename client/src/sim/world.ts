@@ -93,7 +93,9 @@ function drawFacade(seedValue: number, night: boolean): {
     return { map: fallback, emissiveMap: fallback };
   }
   // Concrete base with subtle vertical banding.
-  a.fillStyle = night ? "#22262c" : "#9aa0a8";
+  // Concrete base. Kept mid-dark: a light grey multiplied by the per-instance
+  // tone and lit by a 2.6 sun with ACES tone mapping clipped to white.
+  a.fillStyle = night ? "#1b1f25" : "#6f747c";
   a.fillRect(0, 0, size, size);
   for (let i = 0; i < 24; i += 1) {
     a.fillStyle = `rgba(0,0,0,${0.02 + rng() * 0.05})`;
@@ -106,7 +108,7 @@ function drawFacade(seedValue: number, night: boolean): {
 
   const cellW = size / WINDOW_COLS;
   const cellH = size / WINDOW_ROWS;
-  const pad = cellW * 0.22;
+  const pad = cellW * 0.24;
 
   for (let row = 0; row < WINDOW_ROWS; row += 1) {
     for (let col = 0; col < WINDOW_COLS; col += 1) {
@@ -115,20 +117,29 @@ function drawFacade(seedValue: number, night: boolean): {
       const w = cellW - pad * 2;
       const h = cellH - pad * 2;
 
-      // Glass in the albedo, dark by day and warmly lit at night.
-      const lit = rng() < (night ? 0.42 : 0.12);
-      a.fillStyle = lit ? (night ? "#ffd9a0" : "#c9d6e2") : "#39424d";
+      // A real skyline is mostly dark with scattered lit rooms, so keep the
+      // lit fraction low; the previous 42% read as a uniformly amber slab.
+      const lit = rng() < (night ? 0.17 : 0.10);
+      // Albedo stays neutral: an unlit window is dark glass and a lit one is
+      // only slightly brighter. The glow comes from the emissive map alone --
+      // painting the albedo amber as well double-counted it and turned the
+      // whole facade orange.
+      a.fillStyle = lit ? (night ? "#5d5347" : "#c9d6e2") : "#2b3138";
       a.fillRect(x, y, w, h);
 
       // Recess outline so the grid reads as depth, not a decal.
-      a.strokeStyle = "rgba(0,0,0,0.35)";
+      a.strokeStyle = "rgba(0,0,0,0.5)";
       a.lineWidth = 1;
       a.strokeRect(x, y, w, h);
 
       if (lit) {
-        const glow = 0.55 + rng() * 0.45;
-        e.fillStyle = `rgba(255,${Math.round(200 + rng() * 40)},${Math.round(120 + rng() * 60)},${glow})`;
+        // Slight per-window variation keeps the emissive from looking uniform.
+        const glow = 0.5 + rng() * 0.5;
+        const warmth = 0.75 + rng() * 0.25;
+        e.fillStyle = `rgb(${Math.round(255)},${Math.round(200 * warmth)},${Math.round(150 * warmth)})`;
+        e.globalAlpha = glow;
         e.fillRect(x, y, w, h);
+        e.globalAlpha = 1;
       }
     }
   }
@@ -305,10 +316,12 @@ export function buildWorld(
       color: 0xffffff,
       map,
       emissiveMap,
-      // Lit windows are what makes the night skyline read as a city.
+      // Lit windows are what makes the night skyline read as a city. The value is
+      // deliberately low: at 1.5 every lit window clipped to flat amber and the
+      // facades read as uniformly orange slabs rather than scattered lights.
       emissive: 0xffffff,
-      emissiveIntensity: night ? 1.5 : 0,
-      roughness: 0.85,
+      emissiveIntensity: night ? 0.75 : 0,
+      roughness: 0.9,
     });
 // Each instance is scaled to its own width/height, so a fixed 0..1 UV would
     // stretch a single window across the whole facade. Scaling the UV by the
@@ -345,9 +358,10 @@ export function buildWorld(
         euler.set(0, rot, 0);
         q.setFromEuler(euler);
         // Vary the facade tone per instance so the skyline is not uniform grey.
-        // Multiplied with the window map, so keep it near-white.
-        const tone = 0.85 + rng() * 0.3;
-        buildings.setColorAt(i, new THREE.Color(tone, tone, tone * 1.02));
+        // Multiplied with the window map. Stays at or below 1.0 so the sun
+        // cannot push the brightest facades past the tone-mapper's shoulder.
+        const tone = 0.72 + rng() * 0.26;
+        buildings.setColorAt(i, new THREE.Color(tone, tone, tone * 1.03));
         placed.push({
           x: gx,
           y: terrain.heightAt(gx, gz) + h / 2,
