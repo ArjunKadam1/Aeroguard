@@ -1,6 +1,6 @@
 import type { ApiClient } from "../api/client";
-import type { AAR, PerformanceProfile, RecommendResponse } from "../api/types";
-import { buildAarHtml } from "./aarView";
+import type { AAR, PerformanceProfile, RecommendResponse, Scenario } from "../api/types";
+import { buildAarHtml, type SessionHeader } from "./aarView";
 
 // Renders the After Action Review from the server's own AAR, then layers in the
 // trainee's adaptive recommendation. The server remains the single source of
@@ -10,6 +10,7 @@ export function showAar(
   api: ApiClient,
   sessionId: string,
   traineeId: string,
+  scenario: Scenario,
   fallback: AAR,
   onAgain: () => void,
 ): void {
@@ -18,13 +19,25 @@ export function showAar(
   panel.className = "panel";
   root.appendChild(panel);
 
+  const header: SessionHeader = {
+    scenarioId: scenario.scenario_id,
+    environment: scenario.environment,
+    timeOfDay: scenario.time_of_day,
+    difficulty: scenario.difficulty,
+    durationSeconds: scenario.duration_seconds,
+    threatCount: scenario.threats.length,
+  };
+
   let aar: AAR = fallback;
   let recommendation: RecommendResponse | null = null;
   let profile: PerformanceProfile | null = null;
   let loading = true;
+  // Each fetch fails independently, so collect what went wrong and surface it
+  // rather than silently leaving a permanently placeholder-looking page.
+  const errors: string[] = [];
 
   function render(): void {
-    panel.innerHTML = buildAarHtml(aar, recommendation, profile, loading);
+    panel.innerHTML = buildAarHtml(aar, recommendation, profile, loading, header, errors);
     panel.querySelector<HTMLButtonElement>("#again")?.addEventListener("click", () => {
       panel.remove();
       onAgain();
@@ -38,21 +51,25 @@ export function showAar(
     try {
       const fetched = await api.fetchAar(sessionId);
       if (fetched) aar = fetched;
+      else errors.push("Server review unavailable.");
     } catch (error) {
-      // Keep the locally computed review rather than leaving an empty screen.
-      console.error("failed to fetch server AAR", error);
+      errors.push(`Review: ${errorText(error)}`);
     }
     try {
       recommendation = await api.recommendTraining({ trainee_id: traineeId });
     } catch (error) {
-      console.error("failed to fetch training recommendation", error);
+      errors.push(`Recommendation: ${errorText(error)}`);
     }
     try {
       profile = await api.fetchPerformance(traineeId);
     } catch (error) {
-      console.error("failed to fetch performance profile", error);
+      errors.push(`Performance history: ${errorText(error)}`);
     }
     loading = false;
     render();
   })();
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

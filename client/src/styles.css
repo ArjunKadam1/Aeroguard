@@ -68,6 +68,9 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 .aar-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .aar-bar { display: block; width: 100%; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
 .aar-bar-fill { display: block; height: 100%; background: #58a6ff; }
+.aar-bar-fill.is-good { background: #3fb950; }
+.aar-bar-fill.is-warn { background: #d29922; }
+.aar-bar-fill.is-bad { background: #d1242f; }
 .aar-final { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #2a3b4d; font-size: 13px; }
 .aar-final b { color: #7ee787; font-size: 16px; }
 .aar-meta { font-size: 11px; color: #8b98a5; margin: 8px 0 0; }
@@ -115,3 +118,54 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
   border: 1px solid #d1242f; border-radius: 6px; background: rgba(209, 36, 47, 0.1); }
 .start-submit { padding: 12px; font-size: 13px; letter-spacing: 0.1em; font-weight: 600; }
 .start-submit:disabled { background: #21262d; color: #6e7681; }
+/* AAR hero score */
+.aar-hero { display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 16px 18px; margin: 10px 0 16px; border: 1px solid #2a3b4d; border-radius: 10px;
+  background: linear-gradient(180deg, rgba(31,111,235,0.10), rgba(13,17,23,0.7)); }
+.aar-hero-main { display: flex; align-items: center; gap: 16px; }
+.aar-hero-score { font-size: 54px; font-weight: 700; line-height: 1; color: #7ee787;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.aar-hero-meta { display: flex; flex-direction: column; gap: 4px; }
+.aar-verdict { font-size: 13px; letter-spacing: 0.16em; font-weight: 600; }
+.aar-verdict.is-exemplary { color: #3fb950; }
+.aar-verdict.is-satisfactory { color: #7ee787; }
+.aar-verdict.is-marginal { color: #d29922; }
+.aar-verdict.is-unsatisfactory { color: #ff7b72; }
+.aar-hero-sub { font-size: 11px; color: #8b98a5; }
+.aar-hero-side { text-align: right; }
+.aar-hero-penalty { font-size: 11px; color: #8b98a5; margin-top: 6px; }
+.aar-session { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8b98a5; }
+.aar-session-id { color: #58a6ff; }
+
+/* AAR timeline */
+.aar-card-wide { margin-top: 14px; }
+.aar-ev td { font-size: 12px; }
+.aar-ev.ev-error .aar-decision, .aar-ev.ev-error td:nth-child(3) { color: #ff7b72; }
+.aar-ev.ev-responded .aar-decision { color: #3fb950; }
+.aar-ev.ev-detect .aar-decision { color: #d29922; }
+.aar-ev.ev-session td { color: #8b98a5; }
+.aar-decision { color: #7ee787; font-variant-numeric: tabular-nums; }
+
+/* AAR error chips and counts */
+.aar-chip { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px;
+  background: #21262d; color: #8b98a5; }
+.aar-chip.is-warn { background: rgba(210,153,34,0.16); color: #d29922; }
+.aar-chip.is-bad { background: rgba(209,36,47,0.16); color: #ff7b72; }
+.aar-errorcount { font-size: 12px; color: #8b98a5; margin: 0 0 8px; }
+
+/* AAR cumulative stats */
+.aar-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px; margin-top: 14px; }
+.aar-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  background: rgba(13,17,23,0.7); border: 1px solid #2a3b4d; border-radius: 6px; }
+.aar-stat span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #8b98a5; }
+.aar-stat b { font-size: 18px; color: #7ee787; font-variant-numeric: tabular-nums; }
+.aar-condgroup { display: flex; flex-direction: column; gap: 4px; }
+.aar-condgroup-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #58a6ff; }
+.aar-conds { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
+
+/* AAR load-failure banner */
+.aar-error { padding: 10px 12px; margin-bottom: 12px; border: 1px solid #d29922;
+  border-radius: 6px; background: rgba(210,153,34,0.1); font-size: 13px; }
+.aar-error ul { margin: 6px 0 0; padding-left: 18px; color: #e6edf3; }

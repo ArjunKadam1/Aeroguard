@@ -239,7 +239,7 @@ onDetect: () => {
       timeline: controller.events,
     };
     const { showAar } = await import("./ui/aar");
-    showAar(app, api, sessionId, traineeId, fallbackAar, () => {
+    showAar(app, api, sessionId, traineeId, scenario, fallbackAar, () => {
       showSetup();
     });
   }
