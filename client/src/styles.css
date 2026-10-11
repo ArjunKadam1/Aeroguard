@@ -33,3 +33,16 @@ input, select { width: 100%; padding: 6px; background: #0d1117; color: #e6edf3; 
 table { border-collapse: collapse; width: 100%; }
 td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; }
 
+
+/* Flight HUD */
+#flight-hud { top: 12px; left: 50%; transform: translateX(-50%); cursor: pointer; min-width: 460px; }
+.f-hud-attitude { margin-top: 6px; }
+.fhud-row { display: flex; gap: 20px; align-items: center; justify-content: center; }
+.fhud-cell { display: flex; flex-direction: column; align-items: center; font-size: 17px; font-variant-numeric: tabular-nums; color: #7ee787; min-width: 62px; }
+.fhud-cell em { font-style: normal; font-size: 10px; letter-spacing: 0.1em; color: #58a6ff; }
+.fhud-throttle { position: relative; }
+.fhud-bar { display: block; width: 62px; height: 4px; background: #21262d; border-radius: 2px; margin-top: 3px; overflow: hidden; }
+.fhud-bar-fill { display: block; height: 100%; background: #7ee787; }
+.fhud-help { right: 12px; top: 12px; font-size: 11px; color: #8b98a5; max-width: 190px; }
+.fhud-help div { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
+.fhud-help kbd { color: #e6edf3; font-family: ui-monospace, monospace; }

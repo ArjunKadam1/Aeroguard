@@ -1,11 +1,21 @@
 import * as THREE from "three";
 import { createApiClient } from "./api/client";
 import type { Scenario } from "./api/types";
+import {
+  applyCamera, createAircraft, nextCameraMode, spinRotors, type CameraMode,
+} from "./sim/aircraft";
+import {
+  GRAVITY, altitudeAgl, createFlightState, speedOf, stepFlight,
+} from "./sim/flight";
+import {
+  clearControls, createControlState, isFlightKey, press, readControls, release,
+} from "./sim/input";
 import { createSimScene } from "./sim/scene";
 import { Spawner } from "./sim/spawner";
 import { createThreatView, updateThreatView, THREAT_CRUISE_ALTITUDE, type ThreatView } from "./sim/threats";
 import { SessionController } from "./state/session";
 import { mountActions } from "./ui/actions";
+import { mountFlightHud } from "./ui/flightHud";
 import { mountHud } from "./ui/hud";
 import { mountStartPanel } from "./ui/startPanel";
 
@@ -57,6 +67,50 @@ function startPlay(scenario: Scenario, sessionId: string, traineeId: string): vo
 
   let selected: string | null = scenario.threats[0]?.id ?? null;
   const hud = mountHud(app, scenario);
+
+  // --- Flight ----------------------------------------------------------
+  // The trainee flies the aircraft; the training loop (detect/classify/respond,
+  // event log, scoring) is unchanged and still owned by SessionController.
+  const aircraft = createAircraft();
+  sim.scene.add(aircraft);
+
+  const flightEnv = {
+    groundAt: (x: number, z: number) => sim.world.heightAt(x, z),
+    gravity: GRAVITY,
+  };
+  const flight = createFlightState(0, sim.world.heightAt(0, 0) + 120, 120);
+  const controls = createControlState(0.55);
+  let cameraMode: CameraMode = "fpv";
+  const flightHud = mountFlightHud(app, () => cameraMode, () => {
+    cameraMode = nextCameraMode(cameraMode);
+  });
+
+  function respawn(): void {
+    const fresh = createFlightState(0, sim.world.heightAt(0, 0) + 120, 120);
+    Object.assign(flight.position, fresh.position);
+    Object.assign(flight.velocity, fresh.velocity);
+    Object.assign(flight.attitude, fresh.attitude);
+    Object.assign(flight.angularVelocity, fresh.angularVelocity);
+  }
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "c" || event.key === "C") {
+      cameraMode = nextCameraMode(cameraMode);
+      return;
+    }
+    if (event.key === "r" || event.key === "R") {
+      respawn();
+      return;
+    }
+    if (isFlightKey(event.key)) event.preventDefault();
+    press(controls, event.key);
+  }
+  function onKeyUp(event: KeyboardEvent): void {
+    release(controls, event.key);
+  }
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", () => clearControls(controls));
 
   // Push per-threat stage changes (spawn/detect/classify/respond) into the HUD.
   let hudStageKey = "";
@@ -138,9 +192,34 @@ onDetect: () => {
     });
   }
 
+  let lastFrameMs = performance.now();
   function frame(): void {
     if (finishing) return;
-    const elapsedSec = (performance.now() - startedAt) / 1000;
+    const nowMs = performance.now();
+    // Clamp dt so an alt-tab or a slow first frame cannot tunnel the aircraft
+    // through the ground.
+    const dt = Math.min((nowMs - lastFrameMs) / 1000, 0.05);
+    lastFrameMs = nowMs;
+    const elapsedSec = (nowMs - startedAt) / 1000;
+
+    stepFlight(flight, readControls(controls, dt), dt, flightEnv);
+    aircraft.position.set(flight.position.x, flight.position.y, flight.position.z);
+    aircraft.rotation.set(flight.attitude.x, flight.attitude.y, flight.attitude.z);
+    spinRotors(aircraft, elapsedSec);
+
+    const focusView = selected ? views.get(selected) : undefined;
+    applyCamera(
+      sim.camera,
+      cameraMode,
+      {
+        state: flight,
+        focus: focusView && focusView.mesh.visible
+          ? focusView.mesh.position.clone()
+          : null,
+      },
+      dt,
+    );
+
     spawner.update(elapsedSec);
     for (const view of views.values()) {
       updateThreatView(view, elapsedSec);
@@ -152,6 +231,14 @@ onDetect: () => {
     }
     syncHudThreats();
     hud.setRemaining(scenario.duration_seconds - elapsedSec);
+    flightHud.update({
+      altitude: altitudeAgl(flight, flightEnv),
+      speed: speedOf(flight),
+      throttle: controls.throttle,
+      pitch: flight.attitude.x,
+      roll: flight.attitude.z,
+      heading: flight.attitude.y,
+    });
     sim.render();
     if (!finishing && elapsedSec >= scenario.duration_seconds) {
       void finish();
