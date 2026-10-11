@@ -37,7 +37,12 @@ export interface Scenario {
   threats: ThreatProfile[];
 }
 
-export interface SessionCreateRequest { trainee_id: string; scenario_id: string; }
+export interface SessionCreateRequest {
+  trainee_id: string;
+  scenario_id: string;
+  /** Optional cohort grouping for unit-level performance rollups. */
+  unit?: string | null;
+}
 export interface SessionCreated { session_id: string; status: "active"; }
 
 export type EventType =
@@ -153,5 +158,42 @@ export interface RecommendResponse {
   threat_count: ThreatCount;
   /** Metric-cited explanation, e.g. "Night score 58.0 is 15.0 below overall". */
   reason: string;
+}
+
+// --- Dashboard -------------------------------------------------------------
+
+/** One completed session, from GET /trainees/{id}/sessions (newest first). */
+export interface SessionHistoryItem {
+  session_id: string;
+  scenario_id: string;
+  unit: string | null;
+  completed_at: string | null;
+  final_score: number;
+  environment: Environment;
+  time_of_day: TimeOfDay;
+  difficulty: number;
+  threat_count: number;
+}
+
+export interface UnitWeakness {
+  condition: string;
+  score: number;
+  /** Points this condition trails the unit mean. */
+  gap: number;
+}
+
+/** Aggregate across every completed session in a unit. */
+export interface UnitPerformance {
+  unit: string;
+  session_count: number;
+  trainee_count: number;
+  mean_final_score: number | null;
+  best_final_score: number | null;
+  detection_accuracy: number;
+  classification_accuracy: number;
+  response_accuracy: number;
+  average_reaction_time_ms: number | null;
+  mean_timing_score: number | null;
+  weaknesses: UnitWeakness[];
 }
 

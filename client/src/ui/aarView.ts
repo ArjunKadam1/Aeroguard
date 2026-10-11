@@ -56,6 +56,7 @@ export interface SessionHeader {
   difficulty: number;
   durationSeconds: number;
   threatCount: number;
+  unit: string | null;
 }
 
 function sessionHeaderHtml(header: SessionHeader): string {
@@ -379,5 +380,6 @@ export function buildAarHtml(
     ${recommendationBlock(recommendation)}
     <div class="aar-actions">
       <button id="again">Play again</button>
+      <button id="aar-performance" class="aar-secondary">View performance</button>
     </div>`;
 }

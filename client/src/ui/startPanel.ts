@@ -29,6 +29,7 @@ export function minimumDifficulty(
 
 export interface StartPanelState {
   traineeId: string;
+  unit: string;
   difficulty: number;
   environment: Environment;
   timeOfDay: TimeOfDay;
@@ -42,6 +43,8 @@ export interface StartPanel {
   beginLoading(): () => void;
   endLoading(): void;
   showError(message: string): void;
+  /** Trainee id and unit currently entered, for the performance dashboard. */
+  readIdentity(): { traineeId: string; unit: string | null };
 }
 
 export function buildStartPanelHtml(state: StartPanelState): string {
@@ -69,6 +72,11 @@ export function buildStartPanelHtml(state: StartPanelState): string {
           <label class="start-field">
             <span>Trainee ID</span>
             <input id="trainee_id" name="trainee_id" value="${state.traineeId}" />
+          </label>
+
+          <label class="start-field">
+            <span>Unit <em class="start-hint">for cohort rollups</em></span>
+            <input id="unit" name="unit" value="${state.unit}" />
           </label>
 
           <label class="start-field">
@@ -106,6 +114,9 @@ export function buildStartPanelHtml(state: StartPanelState): string {
 
         <button type="submit" class="start-submit"${state.busy ? " disabled" : ""}>
           ${state.busy ? "GENERATING…" : "START SCENARIO"}
+        </button>
+        <button type="button" id="start-performance" class="start-submit start-secondary">
+          PERFORMANCE
         </button>
       </form>
     </div>`;
@@ -158,6 +169,7 @@ export function parseStartForm(raw: Record<string, string>): {
 export function createStartPanelState(): StartPanelState {
   return {
     traineeId: "TRAIN-001",
+    unit: "ALPHA-1",
     difficulty: 4,
     environment: "urban",
     timeOfDay: "day",
@@ -170,7 +182,8 @@ export function createStartPanelState(): StartPanelState {
 
 export function mountStartPanel(
   root: HTMLElement,
-  onStart: (req: ScenarioGenerateRequest, traineeId: string) => void,
+  onStart: (req: ScenarioGenerateRequest, traineeId: string, unit: string | null) => void,
+  onPerformance?: (traineeId: string, unit: string | null) => void,
 ): StartPanel {
   let state = createStartPanelState();
 
@@ -196,16 +209,26 @@ export function mountStartPanel(
       });
     }
     panel.querySelector<HTMLFormElement>("#start-form")?.addEventListener("submit", onSubmit);
+    panel.querySelector<HTMLButtonElement>("#start-performance")?.addEventListener("click", () => {
+      const identity = readIdentity();
+      onPerformance?.(identity.traineeId, identity.unit);
+    });
   }
 
   function readValue(id: string): string {
     return panel.querySelector<HTMLInputElement>(`#${id}`)?.value ?? "";
   }
 
+  function readIdentity(): { traineeId: string; unit: string | null } {
+    const traineeId = readValue("trainee_id").trim() || "TRAIN-001";
+    const unit = readValue("unit").trim();
+    return { traineeId, unit: unit === "" ? null : unit };
+  }
+
   function onSubmit(event: Event): void {
     event.preventDefault();
     const raw: Record<string, string> = {};
-    for (const id of ["trainee_id", "environment", "time_of_day", "threat_count", "difficulty", "seed"]) {
+    for (const id of ["trainee_id", "unit", "environment", "time_of_day", "threat_count", "difficulty", "seed"]) {
       raw[id] = readValue(id);
     }
     const { request, traineeId, error } = parseStartForm(raw);
@@ -214,9 +237,10 @@ export function mountStartPanel(
       render();
       return;
     }
+    const unit = readIdentity().unit;
     state = { ...state, error: null };
     render();
-    onStart(request, traineeId);
+    onStart(request, traineeId, unit);
   }
 
   render();
@@ -235,5 +259,6 @@ export function mountStartPanel(
       state = { ...state, error: message };
       render();
     },
+    readIdentity,
   };
 }

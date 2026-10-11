@@ -10,6 +10,8 @@ import type {
   ScenarioGenerateRequest,
   SessionCreateRequest,
   SessionCreated,
+  SessionHistoryItem,
+  UnitPerformance,
 } from './types';
 
 export interface ApiClient {
@@ -20,6 +22,8 @@ export interface ApiClient {
   fetchAar(sessionId: string): Promise<AAR>;
   fetchPerformance(traineeId: string): Promise<PerformanceProfile>;
   recommendTraining(request: RecommendRequest): Promise<RecommendResponse>;
+  listSessions(traineeId: string): Promise<SessionHistoryItem[]>;
+  fetchUnitPerformance(unit: string): Promise<UnitPerformance>;
 }
 
 export function createApiClient(
@@ -66,5 +70,7 @@ export function createApiClient(
     fetchPerformance: (traineeId) =>
       get<PerformanceProfile>('/trainees/' + encodeURIComponent(traineeId) + '/performance'),
     recommendTraining: (request) => post<RecommendResponse>('/training/recommend', request),
+    listSessions: (traineeId) => get<SessionHistoryItem[]>('/trainees/' + encodeURIComponent(traineeId) + '/sessions'),
+    fetchUnitPerformance: (unit) => get<UnitPerformance>('/units/' + encodeURIComponent(unit) + '/performance'),
   };
 }

@@ -100,7 +100,7 @@ describe("verdict and hero score", () => {
   it("includes the session header when supplied", () => {
     const html = scoreHero(aar, {
       scenarioId: "SCN-000042", environment: "urban", timeOfDay: "night",
-      difficulty: 6, durationSeconds: 150, threatCount: 2,
+      difficulty: 6, durationSeconds: 150, threatCount: 2, unit: null,
     });
     expect(html).toContain("URBAN / NIGHT");
     expect(html).toContain("difficulty 6");

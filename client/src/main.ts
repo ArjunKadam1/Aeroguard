@@ -30,9 +30,16 @@ const startPanelRef: { current: StartPanel | null } = { current: null };
 
 function showSetup(): void {
   clear();
-  startPanelRef.current = mountStartPanel(app, (request, traineeId) => {
-    void runSession(request, traineeId);
-  });
+  startPanelRef.current = mountStartPanel(
+    app,
+    (request, traineeId, unit) => { void runSession(request, traineeId, unit); },
+    (traineeId, unit) => {
+      // Lazily imported: the dashboard is not on the critical path to a session.
+      void import("./ui/dashboard").then(({ showDashboard }) => {
+        showDashboard(app, api, traineeId, unit, () => { clear(); showSetup(); });
+      });
+    },
+  );
 }
 
 showSetup();
@@ -40,6 +47,7 @@ showSetup();
 async function runSession(
   request: Parameters<typeof api.generateScenario>[0],
   traineeId: string,
+  unit: string | null = null,
 ): Promise<void> {
   // Surface failures instead of rejecting into an unhandled promise: an
   // infeasible configuration (night at too low a difficulty) returns 422, and
@@ -47,11 +55,15 @@ async function runSession(
   startPanelRef.current?.beginLoading();
   try {
     const scenario = await api.generateScenario(request);
-    const session = await api.createSession({ trainee_id: traineeId, scenario_id: scenario.scenario_id });
+    const session = await api.createSession({
+      trainee_id: traineeId,
+      scenario_id: scenario.scenario_id,
+      unit,
+    });
     startPanelRef.current?.endLoading();
     clear();
     startPanelRef.current = null;
-    startPlay(scenario, session.session_id, traineeId);
+    startPlay(scenario, session.session_id, traineeId, unit);
   } catch (error) {
     startPanelRef.current?.showError(errorMessage(error));
     startPanelRef.current?.endLoading();
@@ -68,7 +80,9 @@ function errorMessage(error: unknown): string {
   return `Could not start the scenario: ${raw}`;
 }
 
-function startPlay(scenario: Scenario, sessionId: string, traineeId: string): void {
+function startPlay(
+  scenario: Scenario, sessionId: string, traineeId: string, unit: string | null,
+): void {
   const sceneContainer = document.createElement("div");
   sceneContainer.id = "scene";
   app.appendChild(sceneContainer);
@@ -241,7 +255,7 @@ onDetect: () => {
     const { showAar } = await import("./ui/aar");
     showAar(app, api, sessionId, traineeId, scenario, fallbackAar, () => {
       showSetup();
-    });
+    }, unit);
   }
 
   let lastFrameMs = performance.now();

@@ -13,6 +13,7 @@ export function showAar(
   scenario: Scenario,
   fallback: AAR,
   onAgain: () => void,
+  unit: string | null = null,
 ): void {
   const panel = document.createElement("div");
   panel.id = "aar-panel";
@@ -26,6 +27,7 @@ export function showAar(
     difficulty: scenario.difficulty,
     durationSeconds: scenario.duration_seconds,
     threatCount: scenario.threats.length,
+    unit,
   };
 
   let aar: AAR = fallback;
@@ -41,6 +43,17 @@ export function showAar(
     panel.querySelector<HTMLButtonElement>("#again")?.addEventListener("click", () => {
       panel.remove();
       onAgain();
+    });
+    panel.querySelector<HTMLButtonElement>("#aar-performance")?.addEventListener("click", () => {
+      panel.remove();
+      // Same identity the session was created with, so the dashboard can scope
+      // both the individual's history and the unit rollup.
+      void import("./dashboard").then(({ showDashboard }) => {
+        showDashboard(root, api, traineeId, header.unit, () => {
+          // Back returns to the setup screen; the review is finished.
+          onAgain();
+        });
+      });
     });
   }
 

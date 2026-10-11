@@ -169,3 +169,27 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 .aar-error { padding: 10px 12px; margin-bottom: 12px; border: 1px solid #d29922;
   border-radius: 6px; background: rgba(210,153,34,0.1); font-size: 13px; }
 .aar-error ul { margin: 6px 0 0; padding-left: 18px; color: #e6edf3; }
+/* Performance dashboard */
+#dashboard-panel { inset: 0; display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto; background: radial-gradient(ellipse at 50% 30%, #101a24 0%, #070b10 70%);
+  border: 0; border-radius: 0; }
+#dashboard-panel > * { max-width: 880px; width: 100%; }
+.dash-subject { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #8b98a5;
+  margin: 0 0 14px; }
+.dash-subject b { color: #58a6ff; }
+.dash-headline { margin-top: 0; }
+.dash-trend { margin-top: 14px; }
+.dash-spark { display: block; }
+.dash-line { fill: none; stroke: #58a6ff; stroke-width: 2; stroke-linejoin: round; }
+.dash-axis { stroke: #2a3b4d; stroke-width: 1; }
+.dash-dot { fill: #7ee787; }
+.dash-dot.is-warn { fill: #d29922; }
+.dash-dot.is-bad { fill: #d1242f; }
+.dash-empty, .aar-empty { color: #8b98a5; font-style: italic; font-size: 12px; }
+.dash-weaknesses { list-style: none; margin: 6px 0 0; padding: 0; }
+.dash-weaknesses li { display: flex; align-items: baseline; gap: 10px; padding: 4px 0;
+  border-bottom: 1px solid #2a3b4d; font-size: 13px; }
+.dash-weaknesses b { color: #d29922; font-variant-numeric: tabular-nums; }
+.dash-weaknesses em { color: #8b98a5; font-style: normal; font-size: 11px; margin-left: auto; }
+.dash-subhead { margin: 14px 0 4px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: #58a6ff; }
