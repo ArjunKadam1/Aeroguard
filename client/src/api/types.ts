@@ -66,3 +66,92 @@ export interface CompleteResponse {
   scoring_version: number;
 }
 
+// Scoring maxima live in backend/app/services/scoring.py. The API does not
+// expose them, so they are declared once here rather than being copied into a
+// template. Update both places together if scoring_version is bumped.
+export const SCORING_MAXIMA = {
+  detection: 30,
+  classification: 30,
+  response: 25,
+  timing: 15,
+} as const;
+
+// --- After Action Review (mirrors backend/app/schemas/aar.py) ------------
+
+export type MistakeKind =
+  | "missed_threat" | "false_alarm" | "classification_error" | "response_error";
+
+export interface Mistake {
+  kind: MistakeKind;
+  timestamp_ms: number;
+  threat_id: string | null;
+  detail: string | null;
+}
+
+// Every field is nullable because the server returns null when a condition was
+// never exercised in a session.
+export interface TimingMetrics {
+  mean_time_to_detection_ms: number | null;
+  mean_detection_to_classification_ms: number | null;
+  mean_classification_to_response_ms: number | null;
+  mean_total_decision_ms: number | null;
+}
+
+export interface ScoreResult {
+  session_id: string;
+  detection_score: number;
+  classification_score: number;
+  response_score: number;
+  timing_score: number;
+  penalty: number;
+  final_score: number;
+  scoring_version: number;
+}
+
+export interface AAR {
+  session_id: string;
+  scenario_id: string;
+  /** Server-authored narrative. Uses the LLM narrator when configured. */
+  summary: string;
+  scores: ScoreResult;
+  timing: TimingMetrics;
+  mistakes: Mistake[];
+  strengths: string[];
+  weaknesses: string[];
+  recommendation: string;
+  timeline: EventCreateRequest[];
+}
+
+export interface PerformanceProfile {
+  trainee_id: string;
+  session_count: number;
+  detection_accuracy: number;
+  classification_accuracy: number;
+  response_accuracy: number;
+  average_reaction_time_ms: number | null;
+  night_score: number | null;
+  day_score: number | null;
+  multi_threat_score: number | null;
+  low_visibility_score: number | null;
+  urban_score: number | null;
+  rural_score: number | null;
+  clear_visibility_score: number | null;
+  reduced_visibility_score: number | null;
+  poor_visibility_score: number | null;
+  high_sensor_score: number | null;
+  medium_sensor_score: number | null;
+  low_sensor_score: number | null;
+  current_level: number;
+}
+
+export interface RecommendRequest { trainee_id: string; }
+
+export interface RecommendResponse {
+  recommended_difficulty: number;
+  environment: Environment;
+  time_of_day: TimeOfDay;
+  threat_count: ThreatCount;
+  /** Metric-cited explanation, e.g. "Night score 58.0 is 15.0 below overall". */
+  reason: string;
+}
+

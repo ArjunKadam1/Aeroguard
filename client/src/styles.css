@@ -34,15 +34,58 @@ table { border-collapse: collapse; width: 100%; }
 td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; }
 
 
-/* Flight HUD */
-#flight-hud { top: 12px; left: 50%; transform: translateX(-50%); cursor: pointer; min-width: 460px; }
-.f-hud-attitude { margin-top: 6px; }
-.fhud-row { display: flex; gap: 20px; align-items: center; justify-content: center; }
-.fhud-cell { display: flex; flex-direction: column; align-items: center; font-size: 17px; font-variant-numeric: tabular-nums; color: #7ee787; min-width: 62px; }
-.fhud-cell em { font-style: normal; font-size: 10px; letter-spacing: 0.1em; color: #58a6ff; }
-.fhud-throttle { position: relative; }
+/* Cockpit HUD */
+#flight-hud { top: 12px; left: 50%; transform: translateX(-50%); cursor: pointer; padding: 10px 16px; }
+.cockpit { display: flex; align-items: center; gap: 18px; }
+.cockpit-mid { display: flex; align-items: center; gap: 14px; }
+.adi-wrap { position: relative; display: flex; }
+.adi { display: block; }
+.adi-pin { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); font-size: 9px; letter-spacing: 0.12em; color: #f0b429; }
+.vtape { display: flex; flex-direction: column; align-items: center; min-width: 56px; }
+.vtape-label { font-size: 9px; letter-spacing: 0.12em; color: #58a6ff; }
+.vtape-value { font-size: 26px; color: #7ee787; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.vtape-unit { font-size: 9px; color: #8b98a5; }
+.htape { position: relative; width: 190px; height: 34px; overflow: hidden; border-top: 1px solid #2a3b4d; border-bottom: 1px solid #2a3b4d; }
+.htape-read { position: absolute; left: 50%; top: 3px; transform: translateX(-50%); font-size: 15px; color: #7ee787; z-index: 2; }
+.ht-mark { position: absolute; top: 15px; transform: translateX(-50%); font-size: 10px; color: #8b98a5; }
+.ht-mark i { font-style: normal; }
+.cockpit-sub { display: flex; gap: 16px; justify-content: center; margin-top: 6px; font-size: 10px; color: #58a6ff; letter-spacing: 0.1em; }
+.cockpit-sub b { color: #7ee787; }
 .fhud-bar { display: block; width: 62px; height: 4px; background: #21262d; border-radius: 2px; margin-top: 3px; overflow: hidden; }
 .fhud-bar-fill { display: block; height: 100%; background: #7ee787; }
 .fhud-help { right: 12px; top: 12px; font-size: 11px; color: #8b98a5; max-width: 190px; }
 .fhud-help div { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
 .fhud-help kbd { color: #e6edf3; font-family: ui-monospace, monospace; }
+
+/* After Action Review */
+#aar-panel { overflow-y: auto; }
+#aar-panel > div { max-width: 860px; width: 100%; }
+.aar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.aar-card { background: rgba(13, 17, 23, 0.7); border: 1px solid #2a3b4d; border-radius: 8px; padding: 12px 14px; }
+.aar-card h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #58a6ff; }
+.aar-table { width: 100%; font-size: 13px; }
+.aar-table th { font-size: 10px; color: #8b98a5; text-transform: uppercase; letter-spacing: 0.08em; }
+.aar-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.aar-bar { display: block; width: 100%; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
+.aar-bar-fill { display: block; height: 100%; background: #58a6ff; }
+.aar-final { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #2a3b4d; font-size: 13px; }
+.aar-final b { color: #7ee787; font-size: 16px; }
+.aar-meta { font-size: 11px; color: #8b98a5; margin: 8px 0 0; }
+.aar-summary { font-size: 13px; line-height: 1.5; margin: 0 0 10px; }
+.aar-list h4 { margin: 8px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+.aar-list ul { margin: 0; padding-left: 18px; font-size: 12px; }
+.aar-good h4 { color: #3fb950; }
+.aar-bad h4 { color: #d29922; }
+.aar-rec { font-size: 13px; margin: 10px 0 0; }
+.aar-empty { color: #8b98a5; font-style: italic; }
+.aar-detail { color: #8b98a5; font-size: 11px; }
+.aar-loading { font-size: 12px; color: #8b98a5; font-style: italic; }
+.aar-conds { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 14px; }
+.aar-cond { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; background: rgba(13,17,23,0.7); border: 1px solid #2a3b4d; border-radius: 6px; font-size: 12px; }
+.aar-cond b { color: #7ee787; font-variant-numeric: tabular-nums; }
+.aar-next { margin-top: 14px; padding: 12px 14px; background: rgba(31, 111, 235, 0.08); border: 1px solid #1f6feb; border-radius: 8px; }
+.aar-next h4 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #58a6ff; }
+.aar-next-grid { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; }
+.aar-next-grid b { color: #7ee787; }
+.aar-reason { font-size: 13px; line-height: 1.5; margin: 8px 0 0; color: #e6edf3; }
+.aar-actions { margin-top: 16px; text-align: center; }

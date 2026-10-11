@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createApiClient } from "./api/client";
-import type { Scenario } from "./api/types";
+import type { AAR, Scenario } from "./api/types";
 import {
   applyCamera, createAircraft, nextCameraMode, spinRotors, type CameraMode,
 } from "./sim/aircraft";
@@ -182,11 +182,35 @@ onDetect: () => {
     await chain;
     const result = await api.completeSession(sessionId);
     sim.dispose();
-    const decisions = new Map(
-      [...views.values()].map((v) => [v.profile.id, v.profile] as const),
-    );
+    // Local review shown immediately; the server AAR replaces it on arrival.
+    const fallbackAar: AAR = {
+      session_id: sessionId,
+      scenario_id: scenario.scenario_id,
+      summary: "Reviewing session…",
+      scores: {
+        session_id: result.session_id,
+        detection_score: result.detection_score,
+        classification_score: result.classification_score,
+        response_score: result.response_score,
+        timing_score: result.timing_score,
+        penalty: result.penalty,
+        final_score: result.final_score,
+        scoring_version: result.scoring_version,
+      },
+      timing: {
+        mean_time_to_detection_ms: null,
+        mean_detection_to_classification_ms: null,
+        mean_classification_to_response_ms: null,
+        mean_total_decision_ms: null,
+      },
+      mistakes: [],
+      strengths: [],
+      weaknesses: [],
+      recommendation: "",
+      timeline: controller.events,
+    };
     const { showAar } = await import("./ui/aar");
-    showAar(app, scenario, result, decisions, () => {
+    showAar(app, api, sessionId, traineeId, fallbackAar, () => {
       clear();
       mountStartPanel(app, (nextRequest, nextTrainee) => { void runSession(nextRequest, nextTrainee); });
     });
