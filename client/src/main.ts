@@ -17,7 +17,7 @@ import { SessionController } from "./state/session";
 import { mountActions } from "./ui/actions";
 import { mountFlightHud } from "./ui/flightHud";
 import { mountHud } from "./ui/hud";
-import { mountStartPanel } from "./ui/startPanel";
+import { mountStartPanel, type StartPanel } from "./ui/startPanel";
 
 const api = createApiClient();
 const app = document.getElementById("app")!;
@@ -26,18 +26,46 @@ function clear(): void {
   app.innerHTML = "";
 }
 
-mountStartPanel(app, (request, traineeId) => {
-  void runSession(request, traineeId);
-});
+const startPanelRef: { current: StartPanel | null } = { current: null };
+
+function showSetup(): void {
+  clear();
+  startPanelRef.current = mountStartPanel(app, (request, traineeId) => {
+    void runSession(request, traineeId);
+  });
+}
+
+showSetup();
 
 async function runSession(
   request: Parameters<typeof api.generateScenario>[0],
   traineeId: string,
 ): Promise<void> {
-  const scenario = await api.generateScenario(request);
-  const session = await api.createSession({ trainee_id: traineeId, scenario_id: scenario.scenario_id });
-  clear();
-  startPlay(scenario, session.session_id, traineeId);
+  // Surface failures instead of rejecting into an unhandled promise: an
+  // infeasible configuration (night at too low a difficulty) returns 422, and
+  // silently doing nothing looks like the app is broken.
+  startPanelRef.current?.beginLoading();
+  try {
+    const scenario = await api.generateScenario(request);
+    const session = await api.createSession({ trainee_id: traineeId, scenario_id: scenario.scenario_id });
+    startPanelRef.current?.endLoading();
+    clear();
+    startPanelRef.current = null;
+    startPlay(scenario, session.session_id, traineeId);
+  } catch (error) {
+    startPanelRef.current?.showError(errorMessage(error));
+    startPanelRef.current?.endLoading();
+  }
+}
+
+function errorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  // The API reports an unreachable difficulty as 422 with a readable detail.
+  if (raw.includes("422")) {
+    return "That configuration is not reachable. Raise the difficulty, lower the threat count, "
+      + "or switch to day. Night adds +2 to the difficulty floor.";
+  }
+  return `Could not start the scenario: ${raw}`;
 }
 
 function startPlay(scenario: Scenario, sessionId: string, traineeId: string): void {
@@ -212,8 +240,7 @@ onDetect: () => {
     };
     const { showAar } = await import("./ui/aar");
     showAar(app, api, sessionId, traineeId, fallbackAar, () => {
-      clear();
-      mountStartPanel(app, (nextRequest, nextTrainee) => { void runSession(nextRequest, nextTrainee); });
+      showSetup();
     });
   }
 

@@ -89,3 +89,29 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 .aar-next-grid b { color: #7ee787; }
 .aar-reason { font-size: 13px; line-height: 1.5; margin: 8px 0 0; color: #e6edf3; }
 .aar-actions { margin-top: 16px; text-align: center; }
+/* Start / setup page */
+#start-panel { inset: 0; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, #101a24 0%, #070b10 70%);
+  border: 0; border-radius: 0; overflow-y: auto; }
+.start-page { width: 100%; max-width: 620px; padding: 28px; }
+.start-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid #2a3b4d; }
+.start-head h1 { margin: 0; font-size: 30px; letter-spacing: 0.02em; font-weight: 650; }
+.start-sub { margin: 4px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #8b98a5; }
+.start-badge { font-size: 10px; letter-spacing: 0.16em; color: #58a6ff; border: 1px solid #1f6feb;
+  border-radius: 4px; padding: 4px 8px; white-space: nowrap; }
+.start-form { display: flex; flex-direction: column; gap: 16px; }
+.start-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.start-field { display: flex; flex-direction: column; gap: 5px; margin: 0; }
+.start-field > span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: #8b98a5; }
+.start-hint { font-style: normal; text-transform: none; letter-spacing: 0; color: #6e7681; }
+.start-field input, .start-field select { padding: 8px 10px; }
+.start-field input.is-invalid { border-color: #d29922; color: #d29922; }
+.start-briefing { font-size: 12px; letter-spacing: 0.06em; color: #7ee787;
+  padding: 9px 12px; border: 1px solid #2a3b4d; border-radius: 6px;
+  background: rgba(126, 231, 135, 0.06); }
+.start-briefing.is-warn { color: #d29922; border-color: #d29922; background: rgba(210, 153, 34, 0.08); }
+.start-error { font-size: 13px; line-height: 1.5; color: #ff7b72; padding: 10px 12px;
+  border: 1px solid #d1242f; border-radius: 6px; background: rgba(209, 36, 47, 0.1); }
+.start-submit { padding: 12px; font-size: 13px; letter-spacing: 0.1em; font-weight: 600; }
+.start-submit:disabled { background: #21262d; color: #6e7681; }
