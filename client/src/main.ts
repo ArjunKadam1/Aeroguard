@@ -231,6 +231,9 @@ onDetect: () => {
     aircraft.position.set(flight.position.x, flight.position.y, flight.position.z);
     aircraft.rotation.set(flight.attitude.x, flight.attitude.y, flight.attitude.z);
     spinRotors(aircraft, elapsedSec);
+    // Keep the shadow frustum centred on the aircraft so the tight ortho box
+    // always contains what the camera is looking at.
+    sim.world.aimSunAt(aircraft.position.x, aircraft.position.y, aircraft.position.z);
 
     const focusView = selected ? views.get(selected) : undefined;
     applyCamera(

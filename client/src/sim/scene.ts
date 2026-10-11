@@ -14,22 +14,29 @@ export interface SimScene {
 export function createSimScene(container: HTMLElement, scenario: Scenario): SimScene {
   const scene = new THREE.Scene();
 
-  const world = buildWorld(scene, scenario);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  // Cap the device pixel ratio: a fullscreen canvas at DPR 2 with MSAA is the
+  // fill-rate ceiling, far more than this scene's triangle count.
+  const pixelRatio = Math.min(window.devicePixelRatio, 1.5);
+  renderer.setPixelRatio(pixelRatio);
+  // Without tone mapping, a 2.6-intensity sun clips daylight to flat white.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.9;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  container.appendChild(renderer.domElement);
+
+  // buildWorld needs the renderer to bake the sky into an environment map.
+  const world = buildWorld(scene, scenario, renderer);
 
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 20000);
   camera.position.set(0, 40, 120);
   camera.lookAt(0, 0, 0);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  container.appendChild(renderer.domElement);
-
   function resize(): void {
     const width = container.clientWidth;
     const height = container.clientHeight;
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(pixelRatio);
     renderer.setSize(width, height);
     if (height > 0) {
       camera.aspect = width / height;

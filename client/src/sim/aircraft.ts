@@ -54,6 +54,15 @@ export function createAircraft(): THREE.Group {
     rotor.name = `rotor-${sx}-${sz}`;
     group.add(rotor);
   }
+  // A procedural quadcopter: central body, four arms, motor pods and rotors.
+  // Built from primitives so there are no external model assets to license.
+  group.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (mesh.isMesh) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    }
+  });
   return group;
 }
 
