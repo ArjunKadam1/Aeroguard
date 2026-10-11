@@ -327,21 +327,33 @@ export function buildWorld(
     const euler = new THREE.Euler();
     // Per-instance dimensions feed the shader patch that scales facade UVs.
     const instanceScale = new Float32Array(count * 3);
+    // Placed buildings, recorded so rooftop units can sit exactly on them
+    // instead of being scattered at unrelated random positions.
+    const placed: Array<{ x: number; y: number; z: number; w: number; h: number; d: number; rot: number }> = [];
     for (let i = 0; i < count; i += 1) {
       const gx = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
       const gz = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
       if (Math.hypot(gx, gz) < 150) { scale.set(0, 0, 0); }
       else {
         const h = 12 + rng() * 55;
-        scale.set(16 + rng() * 20, h, 16 + rng() * 20);
+        const w = 16 + rng() * 20;
+        const d = 16 + rng() * 20;
+        scale.set(w, h, d);
         // Jitter the plan rotation; previously every building was perfectly
         // axis-aligned, which reads as a placeholder grid.
-        euler.set(0, rng() * Math.PI, 0);
+        const rot = rng() * Math.PI;
+        euler.set(0, rot, 0);
         q.setFromEuler(euler);
         // Vary the facade tone per instance so the skyline is not uniform grey.
         // Multiplied with the window map, so keep it near-white.
         const tone = 0.85 + rng() * 0.3;
         buildings.setColorAt(i, new THREE.Color(tone, tone, tone * 1.02));
+        placed.push({
+          x: gx,
+          y: terrain.heightAt(gx, gz) + h / 2,
+          z: gz,
+          w, h, d, rot,
+        });
       }
       instanceScale[i * 3] = scale.x;
       instanceScale[i * 3 + 1] = scale.y;
@@ -357,14 +369,15 @@ export function buildWorld(
     disposables.push(boxGeo, bMat);
 
     // Rooftop plant (AC units, stair housings) breaks the flat-top silhouette
-    // that otherwise makes every tower read as the same extruded box.
+    // that otherwise makes every tower read as the same extruded box. These
+    // must be derived from the placed buildings above: re-rolling positions
+    // here placed them at unrelated points in mid-air.
     const roofGeo = new THREE.BoxGeometry(1, 1, 1);
     const roofMat = new THREE.MeshStandardMaterial({
       color: night ? 0x1c2027 : 0x6b7078,
       roughness: 0.95,
     });
-    const roofCount = 220;
-    const roofs = new THREE.InstancedMesh(roofGeo, roofMat, roofCount);
+    const roofs = new THREE.InstancedMesh(roofGeo, roofMat, placed.length);
     roofs.castShadow = true;
     roofs.receiveShadow = true;
     const rm = new THREE.Matrix4();
@@ -372,24 +385,28 @@ export function buildWorld(
     const rs = new THREE.Vector3();
     const rp = new THREE.Vector3();
     const re = new THREE.Euler();
-    for (let i = 0; i < roofCount; i += 1) {
-      const gx = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
-      const gz = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
-      if (Math.hypot(gx, gz) < 150 || rng() < 0.45) {
-        // Hide the unit by collapsing it, matching the building pass.
+    for (let i = 0; i < placed.length; i += 1) {
+      const b = placed[i];
+      if (rng() < 0.45) {
+        // No plant on this roof; collapse the instance out of sight.
         rs.set(0, 0, 0);
+        rp.set(b.x, b.y, b.z);
+        rq.identity();
       } else {
-        const h = 12 + rng() * 55;
-        const w = 16 + rng() * 20;
-        const d = 16 + rng() * 20;
         const unitH = 2 + rng() * 5;
-        rs.set(w * (0.2 + rng() * 0.35), unitH, d * (0.2 + rng() * 0.35));
+        rs.set(b.w * (0.2 + rng() * 0.35), unitH, b.d * (0.2 + rng() * 0.35));
+        // Offset in the building's own rotated frame so the unit sits within
+        // the roof plate, then sit exactly on top of it.
+        const ox = (rng() - 0.5) * b.w * 0.4;
+        const oz = (rng() - 0.5) * b.d * 0.4;
+        const cos = Math.cos(b.rot);
+        const sin = Math.sin(b.rot);
         rp.set(
-          gx + (rng() - 0.5) * w * 0.4,
-          terrain.heightAt(gx, gz) + h + unitH / 2,
-          gz + (rng() - 0.5) * d * 0.4,
+          b.x + ox * cos - oz * sin,
+          b.y + b.h / 2 + unitH / 2,
+          b.z + ox * sin + oz * cos,
         );
-        re.set(0, rng() * Math.PI, 0);
+        re.set(0, b.rot, 0);
         rq.setFromEuler(re);
       }
       rm.compose(rp, rq, rs);
