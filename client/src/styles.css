@@ -118,6 +118,9 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
   border: 1px solid #d1242f; border-radius: 6px; background: rgba(209, 36, 47, 0.1); }
 .start-submit { padding: 12px; font-size: 13px; letter-spacing: 0.1em; font-weight: 600; }
 .start-submit:disabled { background: #21262d; color: #6e7681; }
+.start-secondary { background: transparent; border: 1px solid #2a3b4d; color: #58a6ff; }
+.start-secondary:hover { border-color: #1f6feb; }
+.aar-secondary { background: transparent; border: 1px solid #2a3b4d; color: #58a6ff; margin-left: 8px; }
 /* AAR hero score */
 .aar-hero { display: flex; align-items: center; justify-content: space-between; gap: 20px;
   padding: 16px 18px; margin: 10px 0 16px; border: 1px solid #2a3b4d; border-radius: 10px;
