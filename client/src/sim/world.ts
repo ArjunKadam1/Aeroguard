@@ -11,6 +11,9 @@ const HORIZON_FAR = 3000;
 const HORIZON_NEAR = 380;
 // Distance the directional light sits from its target when aiming shadows.
 const SUN_OFFSET = 300;
+// Window rows per world unit. A typical floor is ~3.5 units tall, so ~0.29
+// repeats per unit puts roughly one window row per storey.
+const WINDOW_UV_PER_UNIT = 0.29;
 
 // Paints a merged tree geometry: brown trunk, green canopy. Using vertex
 // colours keeps a single instanced draw call instead of one mesh per tree.
@@ -28,6 +31,116 @@ function applyTreeColors(geometry: THREE.BufferGeometry, night: boolean): void {
     colors[i * 3 + 2] = c.b;
   }
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+}
+
+// Patches a MeshStandardMaterial so instanced building facades tile their
+// window texture by real-world size. Exported and pure so it can be unit-tested
+// without a renderer -- an onBeforeCompile patch that fails to apply is silent,
+// three just compiles the unpatched shader.
+export function patchFacadeUvShader(
+  shader: { vertexShader: string },
+  windowsPerUnit: number,
+): void {
+  const k = windowsPerUnit.toFixed(5);
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      "#include <common>",
+      `#include <common>
+       attribute vec3 instanceScale;`,
+    )
+    .replace(
+      "#include <uv_vertex>",
+      `#include <uv_vertex>
+       #ifdef USE_MAP
+         vMapUv *= vec2(max(instanceScale.x, instanceScale.z) * ${k}, instanceScale.y * ${k});
+       #endif
+       #ifdef USE_EMISSIVEMAP
+         vEmissiveMapUv *= vec2(max(instanceScale.x, instanceScale.z) * ${k}, instanceScale.y * ${k});
+       #endif`,
+    );
+}
+
+// Facade window grid drawn on a 2D canvas. Returns an albedo texture plus a
+// matching emissive mask so lit windows glow after dark. Generated at runtime
+// rather than shipped as a file, so there is no asset to license or download.
+//
+// One texture is shared by every building and the UV is scaled per instance by
+// patchFacadeUvShader, so a single grid reads correctly on facades of very
+// different heights.
+const WINDOW_COLS = 8;
+const WINDOW_ROWS = 10;
+
+function drawFacade(seedValue: number, night: boolean): {
+  map: THREE.Texture;
+  emissiveMap: THREE.Texture;
+} {
+  const size = 256;
+  const rng = makeRng(seedValue);
+
+  const albedo = document.createElement("canvas");
+  albedo.width = size; albedo.height = size;
+  const a = albedo.getContext("2d");
+  const emissiveCanvas = document.createElement("canvas");
+  emissiveCanvas.width = size; emissiveCanvas.height = size;
+  const e = emissiveCanvas.getContext("2d");
+  // Guard: buildWorld only runs in a browser, but a missing 2D context would
+  // otherwise throw a null-dereference deep inside the drawing loop.
+  if (!a || !e) {
+    const fallback = new THREE.DataTexture(
+      new Uint8Array([200, 200, 200, 255]), 1, 1, THREE.RGBAFormat,
+    );
+    fallback.needsUpdate = true;
+    return { map: fallback, emissiveMap: fallback };
+  }
+  // Concrete base with subtle vertical banding.
+  a.fillStyle = night ? "#22262c" : "#9aa0a8";
+  a.fillRect(0, 0, size, size);
+  for (let i = 0; i < 24; i += 1) {
+    a.fillStyle = `rgba(0,0,0,${0.02 + rng() * 0.05})`;
+    a.fillRect(rng() * size, 0, 1 + rng() * 3, size);
+  }
+
+  // Black everywhere; only lit windows will emit at night.
+  e.fillStyle = "#000000";
+  e.fillRect(0, 0, size, size);
+
+  const cellW = size / WINDOW_COLS;
+  const cellH = size / WINDOW_ROWS;
+  const pad = cellW * 0.22;
+
+  for (let row = 0; row < WINDOW_ROWS; row += 1) {
+    for (let col = 0; col < WINDOW_COLS; col += 1) {
+      const x = col * cellW + pad;
+      const y = row * cellH + pad;
+      const w = cellW - pad * 2;
+      const h = cellH - pad * 2;
+
+      // Glass in the albedo, dark by day and warmly lit at night.
+      const lit = rng() < (night ? 0.42 : 0.12);
+      a.fillStyle = lit ? (night ? "#ffd9a0" : "#c9d6e2") : "#39424d";
+      a.fillRect(x, y, w, h);
+
+      // Recess outline so the grid reads as depth, not a decal.
+      a.strokeStyle = "rgba(0,0,0,0.35)";
+      a.lineWidth = 1;
+      a.strokeRect(x, y, w, h);
+
+      if (lit) {
+        const glow = 0.55 + rng() * 0.45;
+        e.fillStyle = `rgba(255,${Math.round(200 + rng() * 40)},${Math.round(120 + rng() * 60)},${glow})`;
+        e.fillRect(x, y, w, h);
+      }
+    }
+  }
+
+  const map = new THREE.CanvasTexture(albedo);
+  const emissiveMap = new THREE.CanvasTexture(emissiveCanvas);
+  for (const tex of [map, emissiveMap]) {
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+  }
+  return { map, emissiveMap };
 }
 
 // Deterministic scatter RNG. Same seed => same world (NFR-01), so a scenario
@@ -178,12 +291,31 @@ export function buildWorld(
   // ---- Environment dressing -------------------------------------------
   const rng = makeRng(scenario.seed ^ 0x5eed);
   if (scenario.environment === "urban") {
-    // Buildings on a jittered grid, kept off the launch pad.
+    // Buildings on a jittered grid, kept off the launch pad. Facades use a
+    // generated window grid so they are not plain untextured boxes.
+    //
+    // The box is built 1x1x1 and instanced with a per-building scale, so every
+    // face would otherwise carry exactly one window stretched over it. To keep
+    // window rows roughly square regardless of building height, the shader is
+    // patched to derive UV repeats from the instance scale.
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const { map, emissiveMap } = drawFacade(scenario.seed ^ 0xfaca, night);
+    disposables.push(map, emissiveMap);
     const bMat = new THREE.MeshStandardMaterial({
-      color: night ? 0x2c3038 : 0x8a8f98,
+      color: 0xffffff,
+      map,
+      emissiveMap,
+      // Lit windows are what makes the night skyline read as a city.
+      emissive: 0xffffff,
+      emissiveIntensity: night ? 1.5 : 0,
       roughness: 0.85,
     });
+// Each instance is scaled to its own width/height, so a fixed 0..1 UV would
+    // stretch a single window across the whole facade. Scaling the UV by the
+    // instance's dimensions keeps window rows square and correctly counted on
+    // buildings of very different sizes.
+    bMat.onBeforeCompile = (shader) => patchFacadeUvShader(shader, WINDOW_UV_PER_UNIT);
+
     const count = 220;
     const buildings = new THREE.InstancedMesh(boxGeo, bMat, count);
     buildings.castShadow = true;
@@ -193,6 +325,8 @@ export function buildWorld(
     const scale = new THREE.Vector3();
     const p = new THREE.Vector3();
     const euler = new THREE.Euler();
+    // Per-instance dimensions feed the shader patch that scales facade UVs.
+    const instanceScale = new Float32Array(count * 3);
     for (let i = 0; i < count; i += 1) {
       const gx = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
       const gz = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
@@ -205,20 +339,65 @@ export function buildWorld(
         euler.set(0, rng() * Math.PI, 0);
         q.setFromEuler(euler);
         // Vary the facade tone per instance so the skyline is not uniform grey.
-        const tone = 0.78 + rng() * 0.34;
-        buildings.setColorAt(
-          i,
-          new THREE.Color(tone * 0.62, tone * 0.64, tone * 0.68),
-        );
+        // Multiplied with the window map, so keep it near-white.
+        const tone = 0.85 + rng() * 0.3;
+        buildings.setColorAt(i, new THREE.Color(tone, tone, tone * 1.02));
       }
+      instanceScale[i * 3] = scale.x;
+      instanceScale[i * 3 + 1] = scale.y;
+      instanceScale[i * 3 + 2] = scale.z;
       p.set(gx, terrain.heightAt(gx, gz) + scale.y / 2, gz);
       m.compose(p, q, scale);
       buildings.setMatrixAt(i, m);
     }
     buildings.instanceMatrix.needsUpdate = true;
     if (buildings.instanceColor) buildings.instanceColor.needsUpdate = true;
+    boxGeo.setAttribute("instanceScale", new THREE.InstancedBufferAttribute(instanceScale, 3));
     scene.add(buildings);
     disposables.push(boxGeo, bMat);
+
+    // Rooftop plant (AC units, stair housings) breaks the flat-top silhouette
+    // that otherwise makes every tower read as the same extruded box.
+    const roofGeo = new THREE.BoxGeometry(1, 1, 1);
+    const roofMat = new THREE.MeshStandardMaterial({
+      color: night ? 0x1c2027 : 0x6b7078,
+      roughness: 0.95,
+    });
+    const roofCount = 220;
+    const roofs = new THREE.InstancedMesh(roofGeo, roofMat, roofCount);
+    roofs.castShadow = true;
+    roofs.receiveShadow = true;
+    const rm = new THREE.Matrix4();
+    const rq = new THREE.Quaternion();
+    const rs = new THREE.Vector3();
+    const rp = new THREE.Vector3();
+    const re = new THREE.Euler();
+    for (let i = 0; i < roofCount; i += 1) {
+      const gx = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
+      const gz = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
+      if (Math.hypot(gx, gz) < 150 || rng() < 0.45) {
+        // Hide the unit by collapsing it, matching the building pass.
+        rs.set(0, 0, 0);
+      } else {
+        const h = 12 + rng() * 55;
+        const w = 16 + rng() * 20;
+        const d = 16 + rng() * 20;
+        const unitH = 2 + rng() * 5;
+        rs.set(w * (0.2 + rng() * 0.35), unitH, d * (0.2 + rng() * 0.35));
+        rp.set(
+          gx + (rng() - 0.5) * w * 0.4,
+          terrain.heightAt(gx, gz) + h + unitH / 2,
+          gz + (rng() - 0.5) * d * 0.4,
+        );
+        re.set(0, rng() * Math.PI, 0);
+        rq.setFromEuler(re);
+      }
+      rm.compose(rp, rq, rs);
+      roofs.setMatrixAt(i, rm);
+    }
+    roofs.instanceMatrix.needsUpdate = true;
+    scene.add(roofs);
+    disposables.push(roofGeo, roofMat);
   } else {
     // Trees: a tapered trunk plus stacked canopy cones merged into one
     // geometry. The previous single ConeGeometry(radius, height, 6) had six
