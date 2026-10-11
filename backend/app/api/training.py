@@ -1,10 +1,13 @@
 """Performance aggregation and adaptive recommendation routes.
 
     GET  /trainees/{trainee_id}/performance
+    GET  /trainees/{trainee_id}/sessions
+    GET  /units/{unit}/performance
     POST /training/recommend
 
 Routes stay thin: they assemble plain SessionSummary values from the DB and
-delegate all logic to the pure services.adaptive functions.
+delegate all logic to the pure services.adaptive / services.unit_stats
+functions.
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ from app.db.models import (
 )
 from app.schemas.aar import PerformanceProfile, RecommendRequest, RecommendResponse
 from app.schemas.events import EventType
+from app.schemas.session import SessionHistoryItem
+from app.services.unit_stats import UnitPerformance, rollup_unit
 from app.services.adaptive import (
     RecommendInput,
     SessionSummary,
@@ -82,6 +87,7 @@ def _summary(db: Session, session: SessionRow) -> SessionSummary | None:
         detection_score=score.detection_score,
         classification_score=score.classification_score,
         response_score=score.response_score,
+        timing_score=score.timing_score,
         environment=scenario.environment,
         time_of_day=scenario.time_of_day,
         visibility=scenario.visibility,
@@ -176,3 +182,97 @@ def recommend_training(
     profile.current_level = response.recommended_difficulty
     _upsert_profile(db, profile)
     return response
+
+
+def _session_summaries(db: Session, trainee_id: str) -> list[SessionSummary]:
+    return _summaries(db, trainee_id)
+
+
+@router.get("/trainees/{trainee_id}/sessions", response_model=list[SessionHistoryItem])
+def list_trainee_sessions(
+    trainee_id: str, db: Session = Depends(get_db)
+) -> list[SessionHistoryItem]:
+    """Completed sessions for a trainee, newest first.
+
+    Powers the dashboard's session history. Without this there is no endpoint
+    that can list past sessions at all, so no history view can exist.
+    """
+    _require_trainee(db, trainee_id)
+    rows = _completed_sessions(db, trainee_id)
+    items: list[SessionHistoryItem] = []
+    for row in rows:
+        score = db.get(ScoreRow, row.session_id)
+        scenario = db.get(ScenarioRow, row.scenario_id)
+        if score is None or scenario is None:
+            continue
+        items.append(
+            SessionHistoryItem(
+                session_id=row.session_id,
+                scenario_id=row.scenario_id,
+                unit=row.unit,
+                completed_at=row.completed_at.isoformat() if row.completed_at else None,
+                final_score=score.final_score,
+                environment=scenario.environment,
+                time_of_day=scenario.time_of_day,
+                difficulty=scenario.difficulty,
+                threat_count=len(json.loads(scenario.threats_json)),
+            )
+        )
+    # _completed_sessions orders ascending by completed_at; the dashboard wants
+    # most recent first.
+    items.reverse()
+    return items
+
+
+@router.get("/units/{unit}/performance", response_model=UnitPerformance)
+def unit_performance(
+    unit: str, db: Session = Depends(get_db)
+) -> UnitPerformance:
+    """Aggregate performance across every completed session in a unit."""
+    sessions = (
+        db.query(SessionRow)
+        .filter(SessionRow.unit == unit, SessionRow.status == "completed")
+        .order_by(SessionRow.completed_at, SessionRow.session_id)
+        .all()
+    )
+    if not sessions:
+        raise HTTPException(status_code=404, detail=f"unknown unit: {unit}")
+
+    summaries: list[SessionSummary] = []
+    for row in sessions:
+        score = db.get(ScoreRow, row.session_id)
+        scenario = db.get(ScenarioRow, row.scenario_id)
+        if score is None or scenario is None:
+            continue
+        summaries.append(
+            SessionSummary(
+                final_score=score.final_score,
+                detection_score=score.detection_score,
+                classification_score=score.classification_score,
+                response_score=score.response_score,
+                timing_score=score.timing_score,
+                environment=scenario.environment,
+                time_of_day=scenario.time_of_day,
+                visibility=scenario.visibility,
+                threat_count=len(json.loads(scenario.threats_json)),
+                average_reaction_ms=_average_reaction_ms(db, row.session_id),
+                sensor_quality=scenario.sensor_quality,
+                difficulty=scenario.difficulty,
+            )
+        )
+
+    distinct_trainees = {row.trainee_id for row in sessions}
+    # Reuse the adaptive aggregator so unit condition scores are computed
+    # identically to the per-trainee view.
+    profile = aggregate_performance(unit, summaries, 1)
+    condition_scores = {
+        "day_score": profile.day_score,
+        "night_score": profile.night_score,
+        "multi_threat_score": profile.multi_threat_score,
+        "urban_score": profile.urban_score,
+        "rural_score": profile.rural_score,
+        "clear_visibility_score": profile.clear_visibility_score,
+        "reduced_visibility_score": profile.reduced_visibility_score,
+        "poor_visibility_score": profile.poor_visibility_score,
+    }
+    return rollup_unit(unit, summaries, condition_scores, len(distinct_trainees))

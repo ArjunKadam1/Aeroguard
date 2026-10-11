@@ -130,6 +130,52 @@ paths:
                 $ref: "#/components/schemas/PerformanceProfile"
         "404":
           description: Unknown trainee_id
+  /api/v1/trainees/{trainee_id}/sessions:
+        get:
+          summary: Completed sessions for a trainee, newest first
+          operationId: listTraineeSessions
+          description: >
+            Powers the dashboard's session history. Without this endpoint there is
+            no way to list past sessions.
+          parameters:
+            - name: trainee_id
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            "200":
+              description: Session history, most recent first
+              content:
+                application/json:
+                  schema:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SessionHistoryItem"
+            "404":
+              description: Unknown trainee_id
+  /api/v1/units/{unit}/performance:
+        get:
+          summary: Aggregate performance across a unit's completed sessions
+          operationId: getUnitPerformance
+          description: >
+            Unit-level rollup for the SIH outcome "AAR dashboard tracking
+            individual/unit performance over repeated sessions".
+          parameters:
+            - name: unit
+              in: path
+              required: true
+              schema:
+                type: string
+          responses:
+            "200":
+              description: Unit performance rollup
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/UnitPerformance"
+            "404":
+              description: Unknown unit
   /api/v1/training/recommend:
     post:
       summary: Recommend the next training configuration from recent performance
@@ -152,326 +198,400 @@ paths:
         "422":
           description: Invalid request body
 components:
-  schemas:
-    ScenarioGenerateRequest:
-      type: object
-      required: [difficulty, environment, time_of_day, threat_count]
-      properties:
-        difficulty:
-          type: integer
-          minimum: 1
-          maximum: 10
-        environment:
-          type: string
-          enum: [urban, rural]
-        time_of_day:
-          type: string
-          enum: [day, night]
-        threat_count:
-          type: integer
-          enum: [1, 2, 3, 5]
-        seed:
-          type: integer
-          description: Optional; server generates one when omitted.
-    Scenario:
-      type: object
-      required: [scenario_id, seed, generator_version, difficulty, environment, time_of_day, visibility, sensor_quality, duration_seconds, threats]
-      properties:
-        scenario_id:
-          type: string
-          example: SCN-100
-        seed:
-          type: integer
-        generator_version:
-          type: string
-          example: "1.0"
-        difficulty:
-          type: integer
-          minimum: 1
-          maximum: 10
-        environment:
-          type: string
-          enum: [urban, rural]
-        time_of_day:
-          type: string
-          enum: [day, night]
-        visibility:
-          type: string
-          enum: [clear, reduced, poor]
-        sensor_quality:
-          type: number
-          minimum: 0
-          maximum: 1
-        duration_seconds:
-          type: number
-          minimum: 0
-          exclusiveMinimum: true
-        threats:
-          type: array
-          items:
-            $ref: "#/components/schemas/ThreatProfile"
-    ThreatProfile:
-      type: object
-      required: [id, classification_label, expected_response, spawn_time]
-      properties:
-        id:
-          type: string
-          example: T01
-        category:
-          type: string
-          default: unknown_aerial_object
-        classification_label:
-          type: string
-          enum: [friendly, civilian, unknown, suspicious, hostile]
-        expected_response:
-          type: string
-          enum: [monitor, track, report, hold]
-        spawn_time:
-          type: number
-          minimum: 0
-        speed_class:
-          type: string
-          enum: [slow, medium, fast]
-        visibility_class:
-          type: string
-          enum: [clear, reduced, poor]
-    SessionCreateRequest:
-      type: object
-      required: [trainee_id, scenario_id]
-      properties:
-        trainee_id:
-          type: string
-          example: TRAIN-001
-        scenario_id:
-          type: string
-    SessionCreated:
-      type: object
-      required: [session_id, status]
-      properties:
-        session_id:
-          type: string
-        status:
-          type: string
-          enum: [active]
-    EventCreateRequest:
-      type: object
-      required: [type, timestamp_ms]
-      properties:
-        type:
-          type: string
-          enum:
-            - SESSION_STARTED
-            - SCENARIO_LOADED
-            - THREAT_SPAWNED
-            - THREAT_DETECTED
-            - CLASSIFICATION_SUBMITTED
-            - RESPONSE_SUBMITTED
-            - FALSE_ALARM
-            - THREAT_MISSED
-            - THREAT_RESOLVED
-            - SESSION_PAUSED
-            - SESSION_RESUMED
-            - SESSION_COMPLETED
-        timestamp_ms:
-          type: integer
-          minimum: 0
-        threat_id:
-          type: string
-        payload:
-          type: object
-          additionalProperties: true
-    EventCreated:
-      type: object
-      required: [event_id, accepted]
-      properties:
-        event_id:
-          type: string
-        accepted:
-          type: boolean
-    CompleteResponse:
-      type: object
-      required: [session_id, detection_score, classification_score, response_score, timing_score, penalty, final_score, aar_available, scoring_version]
-      properties:
-        session_id:
-          type: string
-        detection_score:
-          type: number
-          minimum: 0
-          maximum: 100
-        classification_score:
-          type: number
-          minimum: 0
-          maximum: 100
-        response_score:
-          type: number
-          minimum: 0
-          maximum: 100
-        timing_score:
-          type: number
-          minimum: 0
-          maximum: 100
-        penalty:
-          type: number
-          minimum: 0
-        final_score:
-          type: number
-          minimum: 0
-          maximum: 100
-        aar_available:
-          type: boolean
-        scoring_version:
-          type: integer
-    ScoreResult:
-      type: object
-      required: [session_id, detection_score, classification_score, response_score, timing_score, penalty, final_score, scoring_version]
-      properties:
-        session_id:
-          type: string
-        detection_score:
-          type: number
-        classification_score:
-          type: number
-        response_score:
-          type: number
-        timing_score:
-          type: number
-        penalty:
-          type: number
-        final_score:
-          type: number
-          minimum: 0
-          maximum: 100
-        scoring_version:
-          type: integer
-    TimingMetrics:
-      type: object
-      properties:
-        mean_time_to_detection_ms:
-          type: number
-        mean_detection_to_classification_ms:
-          type: number
-        mean_classification_to_response_ms:
-          type: number
-        mean_total_decision_ms:
-          type: number
-    Mistake:
-      type: object
-      required: [kind, timestamp_ms]
-      properties:
-        kind:
-          type: string
-          enum: [missed_threat, false_alarm, classification_error, response_error]
-        threat_id:
-          type: string
-        timestamp_ms:
-          type: integer
-        detail:
-          type: string
-    AAR:
-      type: object
-      required: [session_id, scenario_id, summary, scores, timing, mistakes, strengths, weaknesses, recommendation, timeline]
-      properties:
-        session_id:
-          type: string
-        scenario_id:
-          type: string
-        summary:
-          type: string
-        scores:
-          $ref: "#/components/schemas/ScoreResult"
-        timing:
-          $ref: "#/components/schemas/TimingMetrics"
-        mistakes:
-          type: array
-          items:
-            $ref: "#/components/schemas/Mistake"
-        strengths:
-          type: array
-          items:
+    schemas:
+      ScenarioGenerateRequest:
+        type: object
+        required: [difficulty, environment, time_of_day, threat_count]
+        properties:
+          difficulty:
+            type: integer
+            minimum: 1
+            maximum: 10
+          environment:
             type: string
-        weaknesses:
-          type: array
-          items:
+            enum: [urban, rural]
+          time_of_day:
             type: string
-        recommendation:
-          type: string
-        timeline:
-          type: array
-          items:
-            $ref: "#/components/schemas/EventCreateRequest"
-    PerformanceProfile:
-      type: object
-      required: [trainee_id, session_count, detection_accuracy, classification_accuracy, response_accuracy]
-      properties:
-        trainee_id:
-          type: string
-        session_count:
-          type: integer
-        detection_accuracy:
-          type: number
-          minimum: 0
-          maximum: 100
-        classification_accuracy:
-          type: number
-          minimum: 0
-          maximum: 100
-        response_accuracy:
-          type: number
-          minimum: 0
-          maximum: 100
-        average_reaction_time_ms:
-          type: number
-        night_score:
-          type: number
-        day_score:
-          type: number
-        multi_threat_score:
-          type: number
-        low_visibility_score:
-          type: number
-        urban_score:
-          type: number
-        rural_score:
-          type: number
-        clear_visibility_score:
-          type: number
-        reduced_visibility_score:
-          type: number
-        poor_visibility_score:
-          type: number
-        high_sensor_score:
-          type: number
-        medium_sensor_score:
-          type: number
-        low_sensor_score:
-          type: number
-        current_level:
-          type: integer
-          minimum: 1
-          maximum: 10
-    RecommendRequest:
-      type: object
-      required: [trainee_id]
-      properties:
-        trainee_id:
-          type: string
-    RecommendResponse:
-      type: object
-      required: [recommended_difficulty, environment, time_of_day, threat_count, reason]
-      properties:
-        recommended_difficulty:
-          type: integer
-          minimum: 1
-          maximum: 10
-        environment:
-          type: string
-          enum: [urban, rural]
-        time_of_day:
-          type: string
-          enum: [day, night]
-        threat_count:
-          type: integer
-          enum: [1, 2, 3, 5]
-        reason:
-          type: string
-          description: Human-readable evidence drawn from measured session metrics.
+            enum: [day, night]
+          threat_count:
+            type: integer
+            enum: [1, 2, 3, 5]
+          seed:
+            type: integer
+            description: Optional; server generates one when omitted.
+      Scenario:
+        type: object
+        required: [scenario_id, seed, generator_version, difficulty, environment, time_of_day, visibility, sensor_quality, duration_seconds, threats]
+        properties:
+          scenario_id:
+            type: string
+            example: SCN-100
+          seed:
+            type: integer
+          generator_version:
+            type: string
+            example: "1.0"
+          difficulty:
+            type: integer
+            minimum: 1
+            maximum: 10
+          environment:
+            type: string
+            enum: [urban, rural]
+          time_of_day:
+            type: string
+            enum: [day, night]
+          visibility:
+            type: string
+            enum: [clear, reduced, poor]
+          sensor_quality:
+            type: number
+            minimum: 0
+            maximum: 1
+          duration_seconds:
+            type: number
+            minimum: 0
+            exclusiveMinimum: true
+          threats:
+            type: array
+            items:
+              $ref: "#/components/schemas/ThreatProfile"
+      ThreatProfile:
+        type: object
+        required: [id, classification_label, expected_response, spawn_time]
+        properties:
+          id:
+            type: string
+            example: T01
+          category:
+            type: string
+            default: unknown_aerial_object
+          classification_label:
+            type: string
+            enum: [friendly, civilian, unknown, suspicious, hostile]
+          expected_response:
+            type: string
+            enum: [monitor, track, report, hold]
+          spawn_time:
+            type: number
+            minimum: 0
+          speed_class:
+            type: string
+            enum: [slow, medium, fast]
+          visibility_class:
+            type: string
+            enum: [clear, reduced, poor]
+      SessionCreateRequest:
+        type: object
+        required: [trainee_id, scenario_id]
+        properties:
+            trainee_id:
+              type: string
+              example: TRAIN-001
+            scenario_id:
+              type: string
+            unit:
+              type: string
+              nullable: true
+              description: >
+                Optional cohort grouping used by GET /units/{unit}/performance for
+                unit-level rollups across repeated sessions.
+              example: ALPHA-1
+      SessionCreated:
+        type: object
+        required: [session_id, status]
+        properties:
+          session_id:
+            type: string
+          status:
+            type: string
+            enum: [active]
+      EventCreateRequest:
+        type: object
+        required: [type, timestamp_ms]
+        properties:
+          type:
+            type: string
+            enum:
+              - SESSION_STARTED
+              - SCENARIO_LOADED
+              - THREAT_SPAWNED
+              - THREAT_DETECTED
+              - CLASSIFICATION_SUBMITTED
+              - RESPONSE_SUBMITTED
+              - FALSE_ALARM
+              - THREAT_MISSED
+              - THREAT_RESOLVED
+              - SESSION_PAUSED
+              - SESSION_RESUMED
+              - SESSION_COMPLETED
+          timestamp_ms:
+            type: integer
+            minimum: 0
+          threat_id:
+            type: string
+          payload:
+            type: object
+            additionalProperties: true
+      EventCreated:
+        type: object
+        required: [event_id, accepted]
+        properties:
+          event_id:
+            type: string
+          accepted:
+            type: boolean
+      CompleteResponse:
+        type: object
+        required: [session_id, detection_score, classification_score, response_score, timing_score, penalty, final_score, aar_available, scoring_version]
+        properties:
+          session_id:
+            type: string
+          detection_score:
+            type: number
+            minimum: 0
+            maximum: 100
+          classification_score:
+            type: number
+            minimum: 0
+            maximum: 100
+          response_score:
+            type: number
+            minimum: 0
+            maximum: 100
+          timing_score:
+            type: number
+            minimum: 0
+            maximum: 100
+          penalty:
+            type: number
+            minimum: 0
+          final_score:
+            type: number
+            minimum: 0
+            maximum: 100
+          aar_available:
+            type: boolean
+          scoring_version:
+            type: integer
+      ScoreResult:
+        type: object
+        required: [session_id, detection_score, classification_score, response_score, timing_score, penalty, final_score, scoring_version]
+        properties:
+          session_id:
+            type: string
+          detection_score:
+            type: number
+          classification_score:
+            type: number
+          response_score:
+            type: number
+          timing_score:
+            type: number
+          penalty:
+            type: number
+          final_score:
+            type: number
+            minimum: 0
+            maximum: 100
+          scoring_version:
+            type: integer
+      TimingMetrics:
+        type: object
+        properties:
+          mean_time_to_detection_ms:
+            type: number
+          mean_detection_to_classification_ms:
+            type: number
+          mean_classification_to_response_ms:
+            type: number
+          mean_total_decision_ms:
+            type: number
+      Mistake:
+        type: object
+        required: [kind, timestamp_ms]
+        properties:
+          kind:
+            type: string
+            enum: [missed_threat, false_alarm, classification_error, response_error]
+          threat_id:
+            type: string
+          timestamp_ms:
+            type: integer
+          detail:
+            type: string
+      AAR:
+        type: object
+        required: [session_id, scenario_id, summary, scores, timing, mistakes, strengths, weaknesses, recommendation, timeline]
+        properties:
+          session_id:
+            type: string
+          scenario_id:
+            type: string
+          summary:
+            type: string
+          scores:
+            $ref: "#/components/schemas/ScoreResult"
+          timing:
+            $ref: "#/components/schemas/TimingMetrics"
+          mistakes:
+            type: array
+            items:
+              $ref: "#/components/schemas/Mistake"
+          strengths:
+            type: array
+            items:
+              type: string
+          weaknesses:
+            type: array
+            items:
+              type: string
+          recommendation:
+            type: string
+          timeline:
+            type: array
+            items:
+              $ref: "#/components/schemas/EventCreateRequest"
+      SessionHistoryItem:
+        type: object
+        required: [session_id, scenario_id, final_score, environment, time_of_day, difficulty, threat_count]
+        properties:
+          session_id:
+            type: string
+          scenario_id:
+            type: string
+          unit:
+            type: string
+            nullable: true
+          completed_at:
+            type: string
+            nullable: true
+          final_score:
+            type: number
+          environment:
+            type: string
+          time_of_day:
+            type: string
+          difficulty:
+            type: integer
+          threat_count:
+            type: integer
+      UnitWeakness:
+        type: object
+        required: [condition, score, gap]
+        properties:
+          condition:
+            type: string
+          score:
+            type: number
+          gap:
+            type: number
+            description: Points this condition trails the unit mean.
+      UnitPerformance:
+        type: object
+        required: [unit, session_count, trainee_count, detection_accuracy, classification_accuracy, response_accuracy]
+        properties:
+          unit:
+            type: string
+          session_count:
+            type: integer
+          trainee_count:
+            type: integer
+          mean_final_score:
+            type: number
+            nullable: true
+          best_final_score:
+            type: number
+            nullable: true
+          detection_accuracy:
+            type: number
+          classification_accuracy:
+            type: number
+          response_accuracy:
+            type: number
+          average_reaction_time_ms:
+            type: number
+            nullable: true
+          mean_timing_score:
+            type: number
+            nullable: true
+          weaknesses:
+            type: array
+            items:
+              $ref: "#/components/schemas/UnitWeakness"
+      PerformanceProfile:
+        type: object
+        required: [trainee_id, session_count, detection_accuracy, classification_accuracy, response_accuracy]
+        properties:
+          trainee_id:
+            type: string
+          session_count:
+            type: integer
+          detection_accuracy:
+            type: number
+            minimum: 0
+            maximum: 100
+          classification_accuracy:
+            type: number
+            minimum: 0
+            maximum: 100
+          response_accuracy:
+            type: number
+            minimum: 0
+            maximum: 100
+          average_reaction_time_ms:
+            type: number
+          night_score:
+            type: number
+          day_score:
+            type: number
+          multi_threat_score:
+            type: number
+          low_visibility_score:
+            type: number
+          urban_score:
+            type: number
+          rural_score:
+            type: number
+          clear_visibility_score:
+            type: number
+          reduced_visibility_score:
+            type: number
+          poor_visibility_score:
+            type: number
+          high_sensor_score:
+            type: number
+          medium_sensor_score:
+            type: number
+          low_sensor_score:
+            type: number
+          current_level:
+            type: integer
+            minimum: 1
+            maximum: 10
+      RecommendRequest:
+        type: object
+        required: [trainee_id]
+        properties:
+          trainee_id:
+            type: string
+      RecommendResponse:
+        type: object
+        required: [recommended_difficulty, environment, time_of_day, threat_count, reason]
+        properties:
+          recommended_difficulty:
+            type: integer
+            minimum: 1
+            maximum: 10
+          environment:
+            type: string
+            enum: [urban, rural]
+          time_of_day:
+            type: string
+            enum: [day, night]
+          threat_count:
+            type: integer
+            enum: [1, 2, 3, 5]
+          reason:
+            type: string
+            description: Human-readable evidence drawn from measured session metrics.

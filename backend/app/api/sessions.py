@@ -56,6 +56,7 @@ def create_session(
         session_id=_new_session_id(),
         trainee_id=body.trainee_id,
         scenario_id=body.scenario_id,
+        unit=body.unit,
         status="active",
     )
     db.add(session)

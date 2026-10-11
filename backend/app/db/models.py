@@ -68,6 +68,9 @@ class SessionRow(Base):
     scenario_id: Mapped[str] = mapped_column(
         ForeignKey("scenarios.scenario_id"), nullable=False
     )
+    # Optional cohort grouping. Nullable so existing rows stay valid and the
+    # change stays additive.
+    unit: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -10,10 +10,29 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.scenario import Environment, TimeOfDay
+
 
 class SessionCreateRequest(BaseModel):
     trainee_id: str
     scenario_id: str
+    # Optional unit/platoon grouping for cohort-level performance rollups
+    # (SIH outcome: "individual/unit performance over repeated sessions").
+    unit: str | None = None
+
+
+class SessionHistoryItem(BaseModel):
+    """One completed session, as listed by GET /trainees/{id}/sessions."""
+
+    session_id: str
+    scenario_id: str
+    unit: str | None = None
+    completed_at: str | None = None
+    final_score: float = Field(ge=0, le=100)
+    environment: Environment
+    time_of_day: TimeOfDay
+    difficulty: int = Field(ge=1, le=10)
+    threat_count: int = Field(ge=0)
 
 
 class SessionCreated(BaseModel):

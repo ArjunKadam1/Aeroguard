@@ -35,6 +35,7 @@ class SessionSummary:
     average_reaction_ms: float | None
     sensor_quality: float
     difficulty: int = 1
+    timing_score: float = 0.0
 
 
 @dataclass(frozen=True)
