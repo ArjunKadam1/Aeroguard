@@ -6,21 +6,31 @@ import type { FlightInput } from "./flight";
 
 export type ControlAction =
   | "pitchUp" | "pitchDown" | "rollLeft" | "rollRight"
-  | "yawLeft" | "yawRight" | "throttleUp" | "throttleDown" | "boost";
+  | "yawLeft" | "yawRight" | "throttleUp" | "throttleDown"
+  | "forward" | "reverse" | "boost";
 
+// Movement is decoupled from attitude: W/S drive the aircraft along its heading
+// directly, so travel never requires tilting the nose (which would couple
+// forward motion to a climb). Arrows still control attitude for visual feedback.
 export const KEY_MAP: Readonly<Record<string, ControlAction>> = {
-  // Arrow keys mirror a standard flight-sim stick.
-  ArrowUp: "pitchDown",
-  ArrowDown: "pitchUp",
-  ArrowLeft: "rollLeft",
-  ArrowRight: "rollRight",
-  // WASD for yaw + throttle; Q/E also yaw for keyboard-only pilots.
+  // W/S forward and back.
+  w: "forward",
+  s: "reverse",
+  // Climb and descend. Both pairs map to the same two actions.
+  r: "throttleUp",
+  f: "throttleDown",
+  " ": "throttleUp",
+  Control: "throttleDown",
+  // Yaw left/right.
   a: "yawLeft",
   d: "yawRight",
   q: "yawLeft",
   e: "yawRight",
-  w: "throttleUp",
-  s: "throttleDown",
+  // Attitude (visual feedback only).
+  ArrowUp: "pitchDown",
+  ArrowDown: "pitchUp",
+  ArrowLeft: "rollLeft",
+  ArrowRight: "rollRight",
   Shift: "boost",
 };
 
@@ -91,15 +101,18 @@ export function readControls(state: ControlState, dt: number): FlightInput {
     roll: axis("rollRight", "rollLeft"),
     yaw: axis("yawRight", "yawLeft"),
     throttle: boosting ? Math.max(state.throttle, BOOST_THROTTLE) : state.throttle,
+    forward: axis("forward", "reverse"),
   };
 }
 
 // Human-readable control help, shown in the HUD.
 export const CONTROL_HELP: ReadonlyArray<[string, string]> = [
-  ["W / S", "throttle up / down"],
-  ["Arrows", "pitch and roll"],
-  ["A / D", "yaw left / right"],
+  ["W / S", "fly forward / back"],
+  ["A / D", "turn left / right"],
+  ["R / F", "climb / descend"],
+  ["Space / Ctrl", "climb / descend"],
+  ["Arrows", "pitch and roll (visual)"],
   ["Shift", "boost"],
   ["C", "cycle camera"],
-  ["R", "respawn"],
+  ["Backspace", "respawn"],
 ];

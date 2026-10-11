@@ -14,14 +14,16 @@ export interface Vec3 {
 }
 
 export interface FlightInput {
-  /** -1 nose down .. +1 nose up */
+  /** -1 nose down .. +1 nose up. Visual feedback; does not drive translation. */
   pitch: number;
-  /** -1 roll left .. +1 roll right */
+  /** -1 roll left .. +1 roll right. Visual feedback only. */
   roll: number;
-  /** -1 yaw left .. +1 yaw right */
+  /** -1 yaw left .. +1 yaw right. */
   yaw: number;
-  /** 0 .. 1 collective thrust */
+  /** 0 .. 1 collective thrust, which is what lifts and descends. */
   throttle: number;
+  /** -1 reverse .. +1 forward, applied along the aircraft heading. */
+  forward: number;
 }
 
 export interface FlightState {
@@ -42,11 +44,17 @@ export interface FlightEnvironment {
 
 export const GRAVITY = 18;
 export const THRUST_MAX = 34;
+// Translational thrust along the heading, independent of attitude. Without this
+// the only way to move is to tilt the nose, which couples travel to lift and
+// makes the aircraft climb whenever it accelerates.
+export const FORWARD_THRUST = 26;
 export const PITCH_RATE = 1.9;
 export const ROLL_RATE = 2.4;
 export const YAW_RATE = 1.2;
 export const ANGULAR_DAMPING = 3.2;
-export const SELF_LEVEL_RATE = 4.0;
+// Gentle auto-levelling so the aircraft settles flat but can still hold a
+// visible bank or nose-down attitude while moving.
+export const SELF_LEVEL_RATE = 1.6;
 export const LINEAR_DRAG = 0.045;
 export const MIN_ALTITUDE_CLEARANCE = 1.6;
 export const MAX_SPEED = 120;
@@ -60,7 +68,9 @@ export function createFlightState(x = 0, y = 0, z = 0): FlightState {
   };
 }
 
-export const NEUTRAL_INPUT: FlightInput = { pitch: 0, roll: 0, yaw: 0, throttle: 0 };
+export const NEUTRAL_INPUT: FlightInput = {
+  pitch: 0, roll: 0, yaw: 0, throttle: 0, forward: 0,
+};
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;
@@ -153,6 +163,7 @@ export function stepFlight(
   const roll = clamp(input.roll, -1, 1);
   const yaw = clamp(input.yaw, -1, 1);
   const throttle = clamp(input.throttle, 0, 1);
+  const forward = clamp(input.forward, -1, 1);
 
   // --- Angular.
   // Each axis is a rate-limited servo: the commanded rate is approached, then
@@ -181,14 +192,17 @@ export function stepFlight(
   clampPitch(at);
   clampRoll(at);
 
-  // --- Linear: thrust along body up, gravity down, quadratic drag.
+  // --- Linear: thrust along body up, translation along body forward, gravity
+// down, then quadratic drag.
   const up = upVector(at);
+  const fwd = forwardVector(at);
   const v = state.velocity;
 
   const thrust = THRUST_MAX * throttle;
-  v.x += (up.x * thrust) * step;
-  v.y += (up.y * thrust - env.gravity) * step;
-  v.z += (up.z * thrust) * step;
+  const push = FORWARD_THRUST * forward;
+  v.x += (up.x * thrust + fwd.x * push) * step;
+  v.y += (up.y * thrust + fwd.y * push - env.gravity) * step;
+  v.z += (up.z * thrust + fwd.z * push) * step;
 
   const speed = lengthOf(v);
   if (speed > 0) {

@@ -24,7 +24,7 @@ const terrainGround = (): FlightEnvironment => {
 };
 
 function input(over: Partial<FlightInput> = {}): FlightInput {
-  return { pitch: 0, roll: 0, yaw: 0, throttle: 0, ...over };
+  return { pitch: 0, roll: 0, yaw: 0, throttle: 0, forward: 0, ...over };
 }
 
 function run(state: ReturnType<typeof createFlightState>, i: FlightInput, seconds: number, env = flatGround(), dt = 1 / 60) {
@@ -66,6 +66,55 @@ describe("flight dynamics", () => {
     expect(s.attitude.x).toBeGreaterThan(0.1);
     // Forward is -Z, so z must decrease.
     expect(s.position.z).toBeLessThan(startZ);
+  });
+
+  // --- Translational movement (decoupled from attitude) -------------------
+
+  it("moves forward along the heading without any tilt", () => {
+    const s = createFlightState(0, 300, 0);
+    run(s, input({ forward: 1, throttle: 0.53 }), 3);
+    // Heading is unchanged (still -Z) so z must decrease.
+    expect(s.position.z).toBeLessThan(-5);
+    expect(s.attitude.x).toBeCloseTo(0, 2);
+  });
+
+  it("moves backward on reverse input", () => {
+    const s = createFlightState(0, 300, 0);
+    run(s, input({ forward: -1, throttle: 0.53 }), 3);
+    expect(s.position.z).toBeGreaterThan(5);
+  });
+
+  it("translates along the yawed heading, not always -Z", () => {
+    const s = createFlightState(0, 300, 0);
+    // Hold yaw long enough to turn the aircraft off the -Z heading.
+    run(s, input({ yaw: 1, throttle: 0.53 }), 2);
+    expect(Math.abs(s.attitude.y)).toBeGreaterThan(0.2);
+    // Turning right (+yaw) swings the heading toward -X, so forward thrust
+    // must now drive -X instead of purely -Z.
+    const startX = s.position.x;
+    run(s, input({ forward: 1, throttle: 0.53 }), 3);
+    expect(s.position.x).toBeLessThan(startX - 2);
+  });
+
+  it("reaches a usable forward speed", () => {
+    const s = createFlightState(0, 300, 0);
+    run(s, input({ forward: 1, throttle: 0.53 }), 8);
+    expect(speedOf(s)).toBeGreaterThan(20);
+    expect(speedOf(s)).toBeLessThanOrEqual(120 + 1e-6);
+  });
+
+  it("does not climb or sink while flying level forward", () => {
+    const s = createFlightState(0, 300, 0);
+    const startY = s.position.y;
+    run(s, input({ forward: 1, throttle: 0.529 }), 5);
+    // Level attitude means forward thrust is horizontal, so altitude holds.
+    expect(Math.abs(s.position.y - startY)).toBeLessThan(12);
+  });
+
+  it("reaches a steeper sustained tilt than before self-levelling was relaxed", () => {
+    const s = createFlightState(0, 400, 0);
+    run(s, input({ pitch: 1 }), 4);
+    expect(Math.abs(s.attitude.x)).toBeGreaterThan(0.6);
   });
 
   it("turns on yaw input", () => {
@@ -126,7 +175,7 @@ describe("flight dynamics", () => {
 
   it("stays within the world bounds", () => {
     const s = createFlightState(0, 400, 0);
-    run(s, input({ pitch: 1, throttle: 1 }), 60);
+    run(s, input({ pitch: 1, forward: 1, throttle: 1 }), 60);
     expect(Math.abs(s.position.x)).toBeLessThanOrEqual(1900);
     expect(Math.abs(s.position.z)).toBeLessThanOrEqual(1900);
     expect(s.position.y).toBeLessThanOrEqual(700);
@@ -140,8 +189,9 @@ describe("flight dynamics", () => {
 
   it("clamps out-of-range control inputs instead of trusting them", () => {
     const s = createFlightState(0, 300, 0);
-    run(s, input({ pitch: 99, roll: -99, throttle: 99 }), 2);
+    run(s, input({ pitch: 99, roll: -99, throttle: 99, forward: 99 }), 2);
     expect(s.attitude.x).toBeLessThanOrEqual(1.396 + 1e-6);
+    expect(speedOf(s)).toBeLessThanOrEqual(120 + 1e-6);
   });
 });
 

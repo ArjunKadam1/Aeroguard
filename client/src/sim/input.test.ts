@@ -13,18 +13,28 @@ import {
 } from "./input";
 
 describe("control mapping", () => {
-  it("maps arrow keys to pitch and roll", () => {
+  it("maps W/S to forward and reverse travel", () => {
+    expect(actionForKey("w")).toBe("forward");
+    expect(actionForKey("s")).toBe("reverse");
+  });
+
+  it("maps R/F and Space/Ctrl to climb and descend", () => {
+    expect(actionForKey("r")).toBe("throttleUp");
+    expect(actionForKey("f")).toBe("throttleDown");
+    expect(actionForKey(" ")).toBe("throttleUp");
+    expect(actionForKey("Control")).toBe("throttleDown");
+  });
+
+  it("maps A/D to yaw", () => {
+    expect(actionForKey("a")).toBe("yawLeft");
+    expect(actionForKey("d")).toBe("yawRight");
+  });
+
+  it("maps arrows to attitude", () => {
     expect(actionForKey("ArrowUp")).toBe("pitchDown");
     expect(actionForKey("ArrowDown")).toBe("pitchUp");
     expect(actionForKey("ArrowLeft")).toBe("rollLeft");
     expect(actionForKey("ArrowRight")).toBe("rollRight");
-  });
-
-  it("maps WASD to yaw and throttle", () => {
-    expect(actionForKey("w")).toBe("throttleUp");
-    expect(actionForKey("s")).toBe("throttleDown");
-    expect(actionForKey("a")).toBe("yawLeft");
-    expect(actionForKey("d")).toBe("yawRight");
   });
 
   it("ignores unmapped keys", () => {
@@ -33,32 +43,32 @@ describe("control mapping", () => {
   });
 
   it("matches letters regardless of Caps Lock", () => {
-    expect(actionForKey("W")).toBe("throttleUp");
+    expect(actionForKey("W")).toBe("forward");
     expect(actionForKey("A")).toBe("yawLeft");
-    expect(actionForKey("S")).toBe("throttleDown");
+    expect(actionForKey("S")).toBe("reverse");
     expect(actionForKey("D")).toBe("yawRight");
+    expect(actionForKey("R")).toBe("throttleUp");
   });
 
   it("still matches the Shift modifier itself", () => {
     expect(actionForKey("Shift")).toBe("boost");
   });
 
-  it("treats Shift+W as throttle plus boost, not as an unknown key", () => {
+  it("treats Shift+W as travel plus boost", () => {
     const state = createControlState(0.2);
     press(state, "Shift");
     press(state, "W");
     const input = readControls(state, 1 / 60);
+    expect(input.forward).toBe(1);
     expect(input.throttle).toBe(BOOST_THROTTLE);
   });
 
   it("releases correctly when the key is released with a different case", () => {
     const state = createControlState();
     press(state, "w");
-    expect(readControls(state, 1 / 60).throttle).toBeGreaterThan(0.55);
+    expect(readControls(state, 1 / 60).forward).toBe(1);
     release(state, "W");
-    const after = state.throttle;
-    readControls(state, 1);
-    expect(state.throttle).toBeCloseTo(after, 6);
+    expect(readControls(state, 1 / 60).forward).toBe(0);
   });
 });
 
@@ -83,38 +93,56 @@ describe("readControls", () => {
     expect(input.pitch).toBe(0);
     expect(input.roll).toBe(0);
     expect(input.yaw).toBe(0);
+    expect(input.forward).toBe(0);
     expect(input.throttle).toBeCloseTo(0.55, 6);
+  });
+
+  it("W/S changes travel, not altitude", () => {
+    const state = createControlState(0.55);
+    press(state, "w");
+    const input = readControls(state, 0.016);
+    expect(input.forward).toBe(1);
+    // Throttle is untouched by W, so the aircraft does not climb.
+    expect(input.throttle).toBeCloseTo(0.55, 6);
+  });
+
+  it("R/F changes altitude, not travel", () => {
+    const state = createControlState(0.55);
+    press(state, "r");
+    const input = readControls(state, 1);
+    expect(state.throttle).toBeGreaterThan(0.55);
+    expect(input.forward).toBe(0);
   });
 
   it("raises throttle while held and stops when released", () => {
     const state = createControlState(0.5);
-    press(state, "w");
+    press(state, "r");
     readControls(state, 1);
     const raised = state.throttle;
     expect(raised).toBeGreaterThan(0.5);
-    release(state, "w");
+    release(state, "r");
     readControls(state, 1);
     expect(state.throttle).toBeCloseTo(raised, 6);
   });
 
   it("clamps throttle at both ends", () => {
     const state = createControlState(0);
-    press(state, "w");
+    press(state, "r");
     for (let i = 0; i < 100; i += 1) readControls(state, 0.1);
     expect(state.throttle).toBe(MAX_THROTTLE);
 
-    release(state, "w");
-    press(state, "s");
+    release(state, "r");
+    press(state, "f");
     for (let i = 0; i < 100; i += 1) readControls(state, 0.1);
     expect(state.throttle).toBe(0);
   });
 
   it("throttle rate is time-based, not frame-based", () => {
     const a = createControlState(0);
-    press(a, "w");
+    press(a, "r");
     readControls(a, 1);
     const b = createControlState(0);
-    press(b, "w");
+    press(b, "r");
     for (let i = 0; i < 10; i += 1) readControls(b, 0.1);
     expect(a.throttle).toBeCloseTo(b.throttle, 6);
     expect(a.throttle).toBeCloseTo(THROTTLE_RATE, 6);
@@ -135,6 +163,13 @@ describe("readControls", () => {
     press(state, "ArrowLeft");
     press(state, "ArrowRight");
     expect(readControls(state, 1 / 60).roll).toBe(0);
+  });
+
+  it("produces opposing values for opposing travel keys", () => {
+    const state = createControlState();
+    press(state, "w");
+    press(state, "s");
+    expect(readControls(state, 1 / 60).forward).toBe(0);
   });
 
   it("clearControls releases everything", () => {

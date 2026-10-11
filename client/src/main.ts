@@ -98,7 +98,8 @@ function startPlay(scenario: Scenario, sessionId: string, traineeId: string): vo
       cameraMode = nextCameraMode(cameraMode);
       return;
     }
-    if (event.key === "r" || event.key === "R") {
+    if (event.key === "Backspace") {
+      event.preventDefault();
       respawn();
       return;
     }
