@@ -12,7 +12,9 @@ function threat(id: string, label: ClassificationLabel, speed: SpeedClass = "med
 
 function colorOf(id: string, label: ClassificationLabel): number {
   const view = createThreatView(threat(id, label));
-  const material = (view.mesh as THREE.Mesh).material as THREE.MeshStandardMaterial;
+  // Core mesh carries the id-hash color; the shell is a fixed dark outline.
+  const core = view.mesh.getObjectByName(`threat-core-${id}`) as THREE.Mesh;
+  const material = core.material as THREE.MeshBasicMaterial;
   return material.color.getHex();
 }
 
@@ -28,6 +30,22 @@ describe("createThreatView", () => {
       ["T01", "T02", "T03", "T04", "T05"].map((id) => colorOf(id, "hostile")),
     );
     expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it("uses a self-lit core that ignores fog, inside a dark outline shell", () => {
+    const view = createThreatView(threat("T01", "hostile"));
+    const core = view.mesh.getObjectByName("threat-core-T01") as THREE.Mesh;
+    const coreMat = core.material as THREE.MeshBasicMaterial;
+    // fog:false is what stops the threat washing out against the sky.
+    expect(coreMat.fog).toBe(false);
+
+    const shell = view.mesh.children[0] as THREE.Mesh;
+    const shellMat = shell.material as THREE.MeshBasicMaterial;
+    expect(shellMat.fog).toBe(false);
+    // The shell must be much darker than the core to read as a rim.
+    const coreLum = coreMat.color.getHex();
+    const shellLum = shellMat.color.getHex();
+    expect(shellLum).toBeLessThan(coreLum);
   });
 });
 

@@ -3,7 +3,7 @@ import { createApiClient } from "./api/client";
 import type { Scenario } from "./api/types";
 import { createSimScene } from "./sim/scene";
 import { Spawner } from "./sim/spawner";
-import { createThreatView, updateThreatView, type ThreatView } from "./sim/threats";
+import { createThreatView, updateThreatView, THREAT_CRUISE_ALTITUDE, type ThreatView } from "./sim/threats";
 import { SessionController } from "./state/session";
 import { mountActions } from "./ui/actions";
 import { mountHud } from "./ui/hud";
@@ -142,7 +142,14 @@ onDetect: () => {
     if (finishing) return;
     const elapsedSec = (performance.now() - startedAt) / 1000;
     spawner.update(elapsedSec);
-    for (const view of views.values()) updateThreatView(view, elapsedSec);
+    for (const view of views.values()) {
+      updateThreatView(view, elapsedSec);
+      // Cruise above local terrain so contacts clear hills in the new world.
+      view.mesh.position.y = sim.world.heightAt(
+        view.mesh.position.x,
+        view.mesh.position.z,
+      ) + THREAT_CRUISE_ALTITUDE + Math.sin(elapsedSec) * 2;
+    }
     syncHudThreats();
     hud.setRemaining(scenario.duration_seconds - elapsedSec);
     sim.render();

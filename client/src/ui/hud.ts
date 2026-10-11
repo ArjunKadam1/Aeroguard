@@ -14,9 +14,9 @@ export interface Hud {
   setThreats(states: HudThreatState[]): void;
 }
 
-// Color is derived from the threat id hash only (same rule as the 3D meshes in
-// sim/threats.ts) so the HUD never reveals the ground-truth classification.
-const DOT_COLORS = ["#8899aa", "#99aa88", "#aa8899", "#88aabb", "#bbaa88"] as const;
+// Color is derived from the threat id hash only (same rule as the 3D threat cores
+// in sim/threats.ts) so the HUD never reveals the ground-truth classification.
+const DOT_COLORS = ["#ff6b35", "#22d3ee", "#84cc16", "#d946ef", "#f59e0b"] as const;
 
 const STAGE_LABEL: Record<HudStage, string> = {
   pending: "waiting",

@@ -12,9 +12,15 @@ const CORRIDOR_MIN_X = -70;
 const CORRIDOR_MAX_X = 50;
 const CORRIDOR_WIDTH = CORRIDOR_MAX_X - CORRIDOR_MIN_X;
 
+// Visibility design: a threat must be readable against BOTH a bright day sky
+// and a dark night sky. Any single color fails one of them (a mid-tone against
+// the pale day sky measures ~1.1:1). So each threat is drawn as a self-lit core
+// that ignores fog, wrapped in a dark outline shell. Visibility comes from the
+// bright-on-dark silhouette, which holds against any background.
+//
 // Color is derived from the threat id hash only, never from classification_label,
 // so the render cannot reveal the ground-truth category the trainee must judge.
-const PALETTE = [0x8899aa, 0x99aa88, 0xaa8899, 0x88aabb, 0xbbaa88] as const;
+const PALETTE = [0xff6b35, 0x22d3ee, 0x84cc16, 0xd946ef, 0xf59e0b] as const;
 
 export interface ThreatView {
   profile: ThreatProfile;
@@ -31,13 +37,29 @@ function hashString(value: string): number {
 
 export function createThreatView(profile: ThreatProfile): ThreatView {
   const hash = hashString(profile.id);
-  const geometry = new THREE.BoxGeometry(2, 1, 2);
   const color = PALETTE[hash % PALETTE.length];
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color }));
+  const mesh = new THREE.Group();
+
+  // Dark outline shell, slightly larger so it reads as a rim around the core.
+  const shellGeometry = new THREE.BoxGeometry(3.0, 2.0, 3.0);
+  const shell = new THREE.Mesh(
+    shellGeometry,
+    new THREE.MeshBasicMaterial({ color: 0x0b0f14, fog: false }),
+  );
+  // Self-lit core so it never washes out against the sky or gets fogged away.
+  const coreGeometry = new THREE.BoxGeometry(2.0, 1.0, 2.0);
+  const core = new THREE.Mesh(
+    coreGeometry,
+    new THREE.MeshBasicMaterial({ color, fog: false }),
+  );
+  core.name = `threat-core-${profile.id}`;
+  mesh.add(shell, core);
+
   mesh.visible = false;
   mesh.userData.row = ((hash >> 3) % 3) - 1;
   // Phase offset keeps different threats out of lockstep along the corridor.
   mesh.userData.phaseOffset = ((hash >> 5) % 100) / 100;
+  mesh.userData.core = core;
   return { profile, mesh };
 }
 
@@ -56,3 +78,7 @@ export function updateThreatView(view: ThreatView, elapsedSec: number): void {
   );
   view.mesh.visible = elapsedSec >= view.profile.spawn_time;
 }
+
+// Threat altitude above local terrain, so contacts cruise over hills rather
+// than through them once the world has real elevation.
+export const THREAT_CRUISE_ALTITUDE = 45;
