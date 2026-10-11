@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createApiClient } from "./api/client";
-import type { ClassificationLabel, ExpectedResponse, Scenario } from "./api/types";
+import type { Scenario } from "./api/types";
 import { createSimScene } from "./sim/scene";
 import { Spawner } from "./sim/spawner";
 import { createThreatView, updateThreatView, type ThreatView } from "./sim/threats";
@@ -66,6 +66,8 @@ function startPlay(scenario: Scenario, sessionId: string, traineeId: string): vo
     if (key !== hudStageKey) {
       hudStageKey = key;
       hud.setThreats(states);
+      const current = controller.threats.find((t) => t.profile.id === selected);
+      actions.setStage(current?.stage ?? "pending");
     }
   }
 
@@ -73,16 +75,33 @@ function startPlay(scenario: Scenario, sessionId: string, traineeId: string): vo
     controller.spawnThreat(id);
     selected = id;
     hud.setSelected(id);
+    hudStageKey = "";
   });
   controller.start();
 
   const actions = mountActions(app, {
-    onDetect: () => { if (selected) controller.detect(selected); },
-    onClassify: (label: ClassificationLabel) => { if (selected) controller.classify(selected, label); },
-    onRespond: (response: ExpectedResponse) => { if (selected) controller.respond(selected, response); },
+onDetect: () => {
+      if (!selected) return flashNotice("Select a threat first.");
+      if (!controller.detect(selected)) flashNotice("Already detected.");
+    },
+    onClassify: (label) => {
+      if (!selected) return flashNotice("Select a threat first.");
+      if (!controller.classify(selected, label)) flashNotice("Detect the threat before classifying.");
+    },
+    onRespond: (response) => {
+      if (!selected) return flashNotice("Select a threat first.");
+      if (!controller.respond(selected, response)) flashNotice("Classify the threat before responding.");
+    },
     onFalseAlarm: () => controller.falseAlarm(),
     onFinish: () => finish(),
   });
+
+  let noticeTimer = 0;
+  function flashNotice(message: string): void {
+    actions.setNotice(message);
+    window.clearTimeout(noticeTimer);
+    noticeTimer = window.setTimeout(() => actions.setNotice(""), 2000);
+  }
 
   // Click a threat in the scene to select it.
   const raycaster = new THREE.Raycaster();
@@ -96,7 +115,7 @@ function startPlay(scenario: Scenario, sessionId: string, traineeId: string): vo
     const hit = raycaster.intersectObjects(meshes, false)[0];
     if (hit) {
       const view = [...views.values()].find((v) => v.mesh === hit.object);
-      if (view) { selected = view.profile.id; hud.setSelected(selected); }
+      if (view) { selected = view.profile.id; hud.setSelected(selected); hudStageKey = ""; }
     }
   });
 

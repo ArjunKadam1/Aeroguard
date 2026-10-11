@@ -31,6 +31,7 @@ from app.services.adaptive import (
     aggregate_performance,
     build_recommendation,
     mean,
+    resolve_current_level,
 )
 
 router = APIRouter(tags=["training"])
@@ -87,6 +88,7 @@ def _summary(db: Session, session: SessionRow) -> SessionSummary | None:
         threat_count=len(json.loads(scenario.threats_json)),
         average_reaction_ms=_average_reaction_ms(db, session.session_id),
         sensor_quality=scenario.sensor_quality,
+        difficulty=scenario.difficulty,
     )
 
 
@@ -104,9 +106,10 @@ def _require_trainee(db: Session, trainee_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"unknown trainee_id: {trainee_id}")
 
 
-def _current_level(db: Session, trainee_id: str) -> int:
+def _current_level(db: Session, trainee_id: str, sessions: list[SessionSummary]) -> int:
     profile = db.get(PerformanceProfileRow, trainee_id)
-    return profile.current_level if profile is not None else 1
+    stored = profile.current_level if profile is not None else None
+    return resolve_current_level(stored, sessions)
 
 
 def _upsert_profile(db: Session, profile: PerformanceProfile) -> None:
@@ -138,8 +141,9 @@ def _upsert_profile(db: Session, profile: PerformanceProfile) -> None:
 @router.get("/trainees/{trainee_id}/performance", response_model=PerformanceProfile)
 def get_performance(trainee_id: str, db: Session = Depends(get_db)) -> PerformanceProfile:
     _require_trainee(db, trainee_id)
-    level = _current_level(db, trainee_id)
-    profile = aggregate_performance(trainee_id, _summaries(db, trainee_id), level)
+    summaries = _summaries(db, trainee_id)
+    level = _current_level(db, trainee_id, summaries)
+    profile = aggregate_performance(trainee_id, summaries, level)
     _upsert_profile(db, profile)
     return profile
 
@@ -150,7 +154,7 @@ def recommend_training(
 ) -> RecommendResponse:
     _require_trainee(db, body.trainee_id)
     summaries = _summaries(db, body.trainee_id)
-    level = _current_level(db, body.trainee_id)
+    level = _current_level(db, body.trainee_id, summaries)
     profile = aggregate_performance(body.trainee_id, summaries, level)
     last = summaries[-1] if summaries else None
     data = RecommendInput(

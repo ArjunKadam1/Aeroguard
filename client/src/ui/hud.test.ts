@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { ClassificationLabel, Scenario, ThreatProfile } from "../api/types";
 import { buildHudHtml, threatDotColor, type HudThreatState } from "../ui/hud";
 
-function threat(id: string, label: ClassificationLabel): ThreatProfile {
+function threat(id: string, label: ClassificationLabel, spawn_time = 1): ThreatProfile {
   return {
     id, category: "unknown_aerial_object", classification_label: label,
-    expected_response: "track", spawn_time: 1, speed_class: "medium", visibility_class: "clear",
+    expected_response: "track", spawn_time, speed_class: "medium", visibility_class: "clear",
   };
 }
 
@@ -72,6 +72,51 @@ describe("buildHudHtml", () => {
       10,
     );
     expect(html).toContain("vis poor");
+  });
+});
+
+describe("pending-threat countdown", () => {
+  it("tells the trainee when the next threat is expected", () => {
+    // duration 120, remaining 120 => elapsed 0, T02 spawns at 40s.
+    const html = buildHudHtml(
+      scenario([threat("T01", "hostile", 10), threat("T02", "friendly", 40)]),
+      states(["T01", "spawned"], ["T02", "pending"]),
+      null,
+      120,
+    );
+    expect(html).toContain("in ~40s");
+  });
+
+  it("counts down as the session advances", () => {
+    // remaining 100 => elapsed 20, so T02 is 20s away.
+    const html = buildHudHtml(
+      scenario([threat("T01", "hostile", 10), threat("T02", "friendly", 40)]),
+      states(["T01", "spawned"], ["T02", "pending"]),
+      null,
+      100,
+    );
+    expect(html).toContain("in ~20s");
+  });
+
+  it("omits the countdown once the threat has spawned", () => {
+    const html = buildHudHtml(
+      scenario([threat("T01", "hostile", 40)]),
+      states(["T01", "spawned"]),
+      null,
+      100,
+    );
+    expect(html).not.toContain("in ~");
+  });
+
+  it("drops the countdown once the spawn window has passed", () => {
+    // elapsed 60 is past the 40s spawn time even though the stage is still pending.
+    const html = buildHudHtml(
+      scenario([threat("T01", "hostile", 40)]),
+      states(["T01", "pending"]),
+      null,
+      60,
+    );
+    expect(html).not.toContain("in ~0s");
   });
 });
 

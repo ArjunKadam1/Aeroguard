@@ -34,6 +34,7 @@ class SessionSummary:
     threat_count: int
     average_reaction_ms: float | None
     sensor_quality: float
+    difficulty: int = 1
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,21 @@ def decide_difficulty_delta(recent_final_scores: list[float]) -> int:
 
 def clamp_level(level: int) -> int:
     return max(LEVEL_MIN, min(LEVEL_MAX, level))
+
+
+def resolve_current_level(stored_level: int | None, sessions: list[SessionSummary]) -> int:
+    """Level to adapt around.
+
+    A stored level is authoritative once the profile row exists. Before that,
+    seed from the most recent completed scenario's difficulty so a trainee who
+    just played difficulty 6 is not told they are at level 1
+    (docs/modules/aar_and_adaptive_training.md §4).
+    """
+    if stored_level is not None:
+        return clamp_level(stored_level)
+    if sessions:
+        return clamp_level(sessions[-1].difficulty)
+    return LEVEL_MIN
 
 
 def _accuracy(sessions: list[SessionSummary], attr: str, maximum: int) -> float:
@@ -226,9 +242,11 @@ def build_recommendation(data: RecommendInput) -> RecommendResponse:
         elif overall is None:
             reason = f"No completed sessions yet; starting at difficulty {level}."
         else:
+            shown = recent_mean if recent_mean is not None else overall
             reason = (
-                f"Recent sessions averaged {recent_mean:.1f} (60-89); maintaining difficulty "
-                f"at {level}."
+                f"Recent sessions averaged {shown:.1f}; holding difficulty at {level}. "
+                f"Needs 3 sessions at {IMPROVE_THRESHOLD:.0f}+ or 2 below "
+                f"{DECLINE_THRESHOLD:.0f} to change."
             )
         response = RecommendResponse(
             recommended_difficulty=level,

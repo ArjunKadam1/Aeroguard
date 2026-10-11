@@ -26,6 +26,15 @@ from app.schemas.scenario import (
 
 GENERATOR_VERSION = "1.0"
 
+# Threats appear within the first SPAWN_WINDOW_RATIO of the session, one slot
+# per threat, so a scenario never opens with a long stretch of empty sky and no
+# threat ever spawns too late to detect, classify and respond before auto-finish.
+SPAWN_WINDOW_RATIO = 0.5
+SPAWN_JITTER_RATIO = 0.4
+# No threat may spawn in the last few seconds, since the trainee still needs to
+# detect, classify and respond before the session auto-completes.
+MIN_RESPONSE_SECONDS = 10.0
+
 BASE_DIFFICULTY = 1
 THREAT_COUNT_FACTOR: dict[int, int] = {1: 0, 2: 1, 3: 2, 5: 4}
 ENVIRONMENT_FACTOR: dict[Environment, int] = {Environment.urban: 1, Environment.rural: 0}
@@ -119,9 +128,14 @@ def _build_threats(
     visibility: Visibility,
 ) -> list[ThreatProfile]:
     threats: list[ThreatProfile] = []
+    window = duration_seconds * SPAWN_WINDOW_RATIO
+    slot = window / max(count, 1)
     for index in range(count):
         label = rng.choice(_THREAT_LABELS)
-        spawn_time = round(rng.uniform(0.0, duration_seconds * 0.95), 1)
+        # One slot per threat keeps multi-threat scenarios staggered, and the
+        # jitter stays inside the slot so ordering is preserved.
+        spawn_time = round(slot * index + rng.uniform(0.0, slot * SPAWN_JITTER_RATIO), 1)
+        spawn_time = min(spawn_time, duration_seconds - MIN_RESPONSE_SECONDS)
         threats.append(
             ThreatProfile(
                 id=f"T{index + 1:02d}",

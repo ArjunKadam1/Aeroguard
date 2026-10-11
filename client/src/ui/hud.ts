@@ -44,14 +44,26 @@ export function buildHudHtml(
   selected: string | null,
   remaining: number,
 ): string {
+  const elapsed = Math.max(0, scenario.duration_seconds - remaining);
+  const spawnTimes = new Map(scenario.threats.map((t) => [t.id, t.spawn_time]));
   const rows = threats
     .map((t) => {
       const isSelected = t.id === selected;
       const dot = `<span class="hud-dot" style="background:${threatDotColor(t.id)}"></span>`;
       const marker = isSelected ? ` <span class="hud-selected">selected</span>` : "";
       const stageClass = `hud-stage hud-stage-${t.stage}`;
+      // A pending threat is not on screen yet, so say when it is expected rather
+      // than leaving the trainee looking at an empty sky with no explanation.
+      let countdown = "";
+      if (t.stage === "pending") {
+        const spawn = spawnTimes.get(t.id);
+        if (spawn !== undefined) {
+          const eta = Math.max(0, Math.ceil(spawn - elapsed));
+          countdown = eta > 0 ? ` <span class="hud-eta">in ~${eta}s</span>` : "";
+        }
+      }
       return `<li class="hud-threat${isSelected ? " is-selected" : ""}" data-threat="${t.id}">`
-        + `${dot}<span class="hud-id">${t.id}</span>${marker}`
+        + `${dot}<span class="hud-id">${t.id}</span>${marker}${countdown}`
         + `<span class="${stageClass}">${STAGE_LABEL[t.stage]}</span></li>`;
     })
     .join("");

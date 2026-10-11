@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import type { ClassificationLabel, ThreatProfile } from "../api/types";
-import { createThreatView } from "./threats";
+import type { ClassificationLabel, SpeedClass, ThreatProfile } from "../api/types";
+import { createThreatView, updateThreatView } from "./threats";
 
-function threat(id: string, label: ClassificationLabel): ThreatProfile {
+function threat(id: string, label: ClassificationLabel, speed: SpeedClass = "medium"): ThreatProfile {
   return {
     id, category: "unknown_aerial_object", classification_label: label,
-    expected_response: "track", spawn_time: 1, speed_class: "medium", visibility_class: "clear",
+    expected_response: "track", spawn_time: 1, speed_class: speed, visibility_class: "clear",
   };
 }
 
@@ -28,5 +28,65 @@ describe("createThreatView", () => {
       ["T01", "T02", "T03", "T04", "T05"].map((id) => colorOf(id, "hostile")),
     );
     expect(seen.size).toBeGreaterThan(1);
+  });
+});
+
+describe("updateThreatView", () => {
+  function xAt(profile: ThreatProfile, elapsedSec: number): number {
+    const view = createThreatView(profile);
+    updateThreatView(view, elapsedSec);
+    return view.mesh.position.x;
+  }
+
+  it("stays inside the corridor for the whole session at every speed", () => {
+    const speeds: SpeedClass[] = ["slow", "medium", "fast"];
+    for (const speed of speeds) {
+      const profile = threat("T01", "hostile", speed);
+      for (let t = 0; t <= 600; t += 0.5) {
+        const x = xAt(profile, t);
+        expect(x).toBeGreaterThanOrEqual(-70);
+        expect(x).toBeLessThan(50);
+      }
+    }
+  });
+
+  it("re-enters the corridor instead of flying off permanently", () => {
+    const profile = threat("T01", "hostile", "medium");
+    // One lap is 120 units at 6 units/sec = 20s, measured from the spawn time.
+    const atSpawn = xAt(profile, profile.spawn_time);
+    expect(xAt(profile, profile.spawn_time + 20)).toBeCloseTo(atSpawn, 5);
+    expect(xAt(profile, profile.spawn_time + 40)).toBeCloseTo(atSpawn, 5);
+  });
+
+  it("advances forward, wrapping back to the start rather than jumping off-screen", () => {
+    const profile = threat("T01", "hostile", "fast");
+    let previous = xAt(profile, profile.spawn_time);
+    // A lap is 120 units at 10 units/sec = 12s. Each step must either move
+    // forward or wrap back to the start of the corridor, never overshoot past it.
+    for (let t = profile.spawn_time + 0.5; t <= profile.spawn_time + 11; t += 0.5) {
+      const x = xAt(profile, t);
+      const wrapped = x < previous;
+      if (wrapped) {
+        expect(x).toBeGreaterThanOrEqual(-70);
+        expect(x).toBeLessThan(-60);
+      } else {
+        expect(x).toBeGreaterThan(previous);
+      }
+      previous = x;
+    }
+  });
+
+  it("keeps the threat hidden until its spawn time", () => {
+    const profile = threat("T01", "hostile", "medium");
+    const view = createThreatView(profile);
+    updateThreatView(view, 0);
+    expect(view.mesh.visible).toBe(false);
+    updateThreatView(view, 1);
+    expect(view.mesh.visible).toBe(true);
+  });
+
+  it("stays deterministic for a given elapsed time", () => {
+    const profile = threat("T01", "hostile", "medium");
+    expect(xAt(profile, 37.5)).toBe(xAt(profile, 37.5));
   });
 });

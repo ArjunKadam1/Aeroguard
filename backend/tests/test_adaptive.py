@@ -7,18 +7,33 @@ from app.services.adaptive import (
     build_recommendation,
     clamp_level,
     decide_difficulty_delta,
+    resolve_current_level,
 )
 
 
 def _summary(final=80.0, detection=24.0, classification=24.0, response=20.0,
               time_of_day="day", visibility="clear", threat_count=1, reaction=2000.0,
-              environment="urban", sensor_quality=0.8) -> SessionSummary:
+              environment="urban", sensor_quality=0.8, difficulty=1) -> SessionSummary:
     return SessionSummary(
         final_score=final, detection_score=detection, classification_score=classification,
         response_score=response, environment=environment, time_of_day=time_of_day,
         visibility=visibility, threat_count=threat_count, average_reaction_ms=reaction,
-        sensor_quality=sensor_quality,
+        sensor_quality=sensor_quality, difficulty=difficulty,
     )
+
+
+def test_resolve_current_level_seeds_from_last_played_difficulty() -> None:
+    sessions = [_summary(difficulty=2), _summary(difficulty=6)]
+    # No stored level yet: seed from the most recent scenario actually played.
+    assert resolve_current_level(None, sessions) == 6
+    assert resolve_current_level(None, []) == 1
+
+
+def test_resolve_current_level_prefers_stored_level() -> None:
+    sessions = [_summary(difficulty=6)]
+    assert resolve_current_level(3, sessions) == 3
+    assert resolve_current_level(99, sessions) == 10
+    assert resolve_current_level(0, sessions) == 1
 
 
 def test_decide_difficulty_delta_rules() -> None:

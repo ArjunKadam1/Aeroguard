@@ -9,11 +9,11 @@ def _scenario(client, seed: int, difficulty: int = 3):
     ).json()
 
 
-def _play(client, scenario, *, correct: bool) -> str:
+def _play(client, scenario, *, correct: bool, trainee_id: str = "TRAIN-001") -> str:
     threat = scenario["threats"][0]
     session = client.post(
         "/api/v1/sessions",
-        json={"trainee_id": "TRAIN-001", "scenario_id": scenario["scenario_id"]},
+        json={"trainee_id": trainee_id, "scenario_id": scenario["scenario_id"]},
     ).json()
     sid = session["session_id"]
     if correct:
@@ -71,7 +71,26 @@ def test_recommend_increases_and_persists_level(client) -> None:
     for seed in (10, 11, 12):
         _play(client, _scenario(client, seed, difficulty=3), correct=True)
     first = client.post("/api/v1/training/recommend", json={"trainee_id": "TRAIN-001"}).json()
-    assert first["recommended_difficulty"] == 2
+    # Level is seeded from the scenario difficulty actually played (3), then +1.
+    assert first["recommended_difficulty"] == 4
     assert "increasing" in first["reason"].lower()
     # level was persisted
-    assert client.get("/api/v1/trainees/TRAIN-001/performance").json()["current_level"] == 2
+    assert client.get("/api/v1/trainees/TRAIN-001/performance").json()["current_level"] == 4
+
+
+def test_recommend_seeds_level_from_played_difficulty(client) -> None:
+    """A trainee who just played difficulty 6 must not be told they are at 1."""
+    for seed in (20, 21, 22):
+        _play(client, _scenario(client, seed, difficulty=6), correct=True, trainee_id="TRAIN-002")
+    body = client.post("/api/v1/training/recommend", json={"trainee_id": "TRAIN-002"}).json()
+    assert body["recommended_difficulty"] == 7
+    assert "from 6 to 7" in body["reason"]
+
+
+def test_recommend_hold_reason_does_not_claim_a_fixed_score_band(client) -> None:
+    """A single 100.0 session holds the level; the reason must not say (60-89)."""
+    _play(client, _scenario(client, 31, difficulty=4), correct=True, trainee_id="TRAIN-003")
+    body = client.post("/api/v1/training/recommend", json={"trainee_id": "TRAIN-003"}).json()
+    assert body["recommended_difficulty"] == 4
+    assert "100.0" in body["reason"]
+    assert "60-89" not in body["reason"]
