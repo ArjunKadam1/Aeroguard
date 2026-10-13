@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { SpeedClass, ThreatProfile } from "../api/types";
+import type { PublicThreat, SpeedClass } from "../api/types";
 
 const SPEED_UNITS: Record<SpeedClass, number> = { slow: 3, medium: 6, fast: 10 };
 
@@ -18,12 +18,14 @@ const CORRIDOR_WIDTH = CORRIDOR_MAX_X - CORRIDOR_MIN_X;
 // that ignores fog, wrapped in a dark outline shell. Visibility comes from the
 // bright-on-dark silhouette, which holds against any background.
 //
-// Color is derived from the threat id hash only, never from classification_label,
-// so the render cannot reveal the ground-truth category the trainee must judge.
+// Color is derived from the threat id hash only, never from any hidden
+// classification -- and the profile here is a PublicThreat, which carries no
+// classification at all, so the render cannot reveal the category the trainee
+// must judge.
 const PALETTE = [0xff6b35, 0x22d3ee, 0x84cc16, 0xd946ef, 0xf59e0b] as const;
 
 export interface ThreatView {
-  profile: ThreatProfile;
+  profile: PublicThreat;
   mesh: THREE.Object3D;
 }
 
@@ -35,7 +37,7 @@ function hashString(value: string): number {
   return hash;
 }
 
-export function createThreatView(profile: ThreatProfile): ThreatView {
+export function createThreatView(profile: PublicThreat): ThreatView {
   const hash = hashString(profile.id);
   const color = PALETTE[hash % PALETTE.length];
   const mesh = new THREE.Group();

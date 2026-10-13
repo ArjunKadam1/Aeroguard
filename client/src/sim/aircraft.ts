@@ -77,6 +77,75 @@ export interface CameraTargets {
   state: FlightState;
   /** Point the gimbal should track, or null to look ahead. */
   focus: THREE.Vector3 | null;
+  /** Elapsed seconds, used by the ground-station sweep. */
+  elapsedSec: number;
+}
+
+// --- Ground station --------------------------------------------------------
+// The problem statement describes a trainee who observes an environment and
+// identifies objects; it does not describe piloting. The station is therefore
+// the default: a FIXED mast that pans on demand, and which can lock onto a
+// selected contact. It does not move on its own -- a camera that swings by
+// itself hands the trainee the search for them.
+
+/** Fixed mast position. Chosen so the whole contact corridor stays in frame. */
+export const STATION_POSITION = { x: 0, y: 50, z: 90 };
+/** Default aim point: the middle of the contact lane at cruise altitude. */
+export const STATION_AIM = { x: -10, y: 45, z: 0 };
+export const STATION_LOCK_OFFSET = { x: 0, y: 6, z: 46 };
+export const STATION_MAX_PAN = 0.9;
+
+export interface StationCameraTargets {
+  /** Pan offset in radians, driven only by deliberate sweep input. */
+  heading: number;
+  /** Locked contact position, or null to hold at the station aim. */
+  focus: THREE.Vector3 | null;
+}
+
+/**
+ * Rotate the aim point around the fixed mast by `heading`.
+ * Returns the point the camera should look at.
+ */
+export function stationLookTarget(heading: number): THREE.Vector3 {
+  const dx = STATION_AIM.x - STATION_POSITION.x;
+  const dz = STATION_AIM.z - STATION_POSITION.z;
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  return new THREE.Vector3(
+    STATION_POSITION.x + dx * cos - dz * sin,
+    STATION_AIM.y,
+    STATION_POSITION.z + dx * sin + dz * cos,
+  );
+}
+
+export function applyStationCamera(
+  camera: THREE.PerspectiveCamera,
+  targets: StationCameraTargets,
+  dt: number,
+): void {
+  const alpha = dt > 0 ? Math.min(1, dt * 3) : 1;
+  const mast = new THREE.Vector3(
+    STATION_POSITION.x, STATION_POSITION.y, STATION_POSITION.z,
+  );
+  if (targets.focus) {
+    // Locked on: hold a stable tracking view so detection time is fair.
+    const desired = targets.focus.clone().add(
+      new THREE.Vector3(
+        STATION_LOCK_OFFSET.x, STATION_LOCK_OFFSET.y, STATION_LOCK_OFFSET.z,
+      ),
+    );
+    camera.position.lerp(desired, alpha);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(targets.focus);
+    return;
+  }
+  // Unlocked: the mast never moves. Only the aim pans, and only because the
+  // trainee asked for it. The position is assigned rather than eased because
+  // it is fixed and known up front -- easing it would make the camera visibly
+  // swing into place when a session starts.
+  camera.position.copy(mast);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(stationLookTarget(targets.heading));
 }
 
 export function applyCamera(

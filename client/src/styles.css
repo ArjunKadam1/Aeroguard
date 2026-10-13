@@ -172,6 +172,52 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 .aar-error { padding: 10px 12px; margin-bottom: 12px; border: 1px solid #d29922;
   border-radius: 6px; background: rgba(210,153,34,0.1); font-size: 13px; }
 .aar-error ul { margin: 6px 0 0; padding-left: 18px; color: #e6edf3; }
+/* Operator role selector */
+.start-modes { margin-bottom: 2px; }
+.start-modetitle { display: block; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.09em; color: #8b98a5; margin-bottom: 6px; }
+.mode-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.mode-btn { flex: 1 1 160px; padding: 10px; font-size: 11px; letter-spacing: 0.12em;
+  font-weight: 600; background: transparent; border: 1px solid #2a3b4d; color: #8b98a5; }
+.mode-btn.is-active { background: rgba(31,111,235,0.14); border-color: #1f6feb; color: #58a6ff; }
+.start-modehint { margin: 8px 0 0; font-size: 11px; color: #8b98a5; }
+
+/* Ground station control hints */
+#station-help { right: 12px; top: 12px; font-size: 11px; color: #8b98a5; max-width: 210px; }
+#station-help.is-hidden { opacity: 0; pointer-events: none; transition: opacity 150ms ease; }
+
+/* HUD behavior cues and shared signature legend */
+.hud-behavior { color: #58a6ff; font-size: 11px; margin-left: 8px; }
+.hud-track { font-size: 10px; margin-left: 8px; color: #3fb950; }
+.hud-track-tentative { color: #d29922; }
+.hud-track-coasting { color: #8b98a5; }
+.hud-track-unseen { color: #6e7681; }
+.hud-legend { margin-top: 8px; border-top: 1px solid #30363d; padding-top: 6px; font-size: 10px; color: #8b98a5; }
+.hud-legend-title { display: block; font-size: 9px; letter-spacing: 0.14em; color: #58a6ff; margin-bottom: 4px; }
+.hud-legend div { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
+
+/* Radar scope (scout) and sensor status */
+#right-rail { position: absolute; right: 12px; top: 12px; width: 224px; display: flex; flex-direction: column; gap: 12px; }
+#right-rail .fhud-help, #right-rail #radar { position: static; width: 100%; max-width: none; }
+#radar { right: 12px; top: 12px; width: 224px; }
+.radar-scope { width: 100%; height: auto; display: block; }
+.radar-ring { fill: none; stroke: #30363d; stroke-width: 1; }
+.radar-ring-label { fill: #8b98a5; font-size: 8px; }
+.radar-sweep { stroke: #22d3ee; stroke-width: 1.5; opacity: 0.7; }
+.radar-blip { cursor: pointer; }
+.radar-blip circle { fill: #22d3ee; }
+.radar-blip text { fill: #e6edf3; font-size: 10px; }
+.radar-blip.is-stale circle { fill: #8b98a5; opacity: 0.55; }
+.radar-blip.is-stale text { fill: #8b98a5; }
+.radar-empty { fill: #8b98a5; font-size: 11px; text-anchor: middle; }
+.radar-foot { display: flex; justify-content: space-between; font-size: 10px; color: #8b98a5; margin-top: 4px; }
+.hud-sensors { margin-top: 8px; border-top: 1px solid #30363d; padding-top: 6px; font-size: 10px; color: #8b98a5; }
+.hud-sensors div { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
+.sensor-reasons { margin-top: 4px; color: #d29922; }
+.fhud-help-title { display: block; font-size: 9px; letter-spacing: 0.14em; color: #58a6ff; margin-bottom: 6px; }
+#station-help div { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
+#station-help kbd { color: #e6edf3; font-family: ui-monospace, monospace; }
+
 /* Performance dashboard */
 #dashboard-panel { inset: 0; display: flex; align-items: flex-start; justify-content: center;
   overflow-y: auto; background: radial-gradient(ellipse at 50% 30%, #101a24 0%, #070b10 70%);

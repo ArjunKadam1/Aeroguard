@@ -36,6 +36,11 @@ class SessionSummary:
     sensor_quality: float
     difficulty: int = 1
     timing_score: float = 0.0
+    # Observation-loop evidence (M6): mean spawn->detection latency across
+    # detected threats, and the share of detections acquired via radar-only
+    # tracks. Displayed in recommendations; never changes dimensions.
+    mean_acquisition_ms: float | None = None
+    radar_detection_share: float | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +58,8 @@ class RecommendInput:
     reduced_visibility_score: float | None = None
     poor_visibility_score: float | None = None
     low_sensor_score: float | None = None
+    mean_acquisition_ms: float | None = None
+    radar_detection_share: float | None = None
 
 
 def mean(values: list[float]) -> float | None:
@@ -169,6 +176,33 @@ def _condition_evidence(data: RecommendInput, overall: float | None) -> str:
     return " Weakened conditions: " + "; ".join(parts) + "."
 
 
+ACQUISITION_WINDOW_MS = 9000.0
+
+
+def _observation_evidence(data: RecommendInput) -> str:
+    """Evidence from the observation loop: acquisition lag and radar reliance.
+
+    Evidence-only, like _condition_evidence: it explains but never changes a
+    dimension, so the tuned difficulty rules are untouched.
+    """
+    parts: list[str] = []
+    if data.mean_acquisition_ms is not None and data.mean_acquisition_ms > ACQUISITION_WINDOW_MS:
+        parts.append(
+            f"acquisition lag: mean {data.mean_acquisition_ms / 1000:.1f}s from spawn "
+            f"to detection is past the {ACQUISITION_WINDOW_MS / 1000:.1f}s timing window; "
+            "practice acquiring contacts sooner rather than harder scenarios"
+        )
+    if data.radar_detection_share is not None and data.radar_detection_share >= 0.5:
+        parts.append(
+            f"radar reliance: {data.radar_detection_share:.0%} of detections came from "
+            "radar-only tracks, and classification needs visual confirmation; "
+            "practice closing to visual range"
+        )
+    if not parts:
+        return ""
+    return " Observation loop: " + "; ".join(parts) + "."
+
+
 def build_recommendation(data: RecommendInput) -> RecommendResponse:
     overall = data.overall_score
     environment = Environment(data.last_environment)
@@ -259,4 +293,7 @@ def build_recommendation(data: RecommendInput) -> RecommendResponse:
     evidence = _condition_evidence(data, overall)
     if evidence:
         response.reason += evidence
+    observation = _observation_evidence(data)
+    if observation:
+        response.reason += observation
     return response

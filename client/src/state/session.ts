@@ -1,13 +1,30 @@
 import type {
-  ClassificationLabel, EventCreateRequest, ExpectedResponse, Scenario, ThreatProfile,
+  ClassificationLabel, EventCreateRequest, ExpectedResponse, PublicThreat,
 } from "../api/types";
 import { events } from "./events";
 
 export type ThreatStage = "pending" | "spawned" | "detected" | "classified" | "responded";
 export type SessionStatus = "idle" | "active" | "completing" | "complete";
+export type OperatorRole = "station" | "airborne";
+
+/**
+ * Initial gameplay selection by operator role. The ground station must start
+ * unlocked: pre-selecting the first contact hands the trainee the search that
+ * recognition training is meant to measure. Airborne keeps the historical
+ * first-contact selection.
+ */
+export function initialSelectedThreatId(
+  role: OperatorRole,
+  threatIds: readonly string[],
+): string | null {
+  if (role !== "airborne") return null;
+  return threatIds[0] ?? null;
+}
 
 export interface ThreatState {
-  profile: ThreatProfile;
+  // Public threat only: the session state machine tracks workflow stages
+  // against observable contacts, never ground-truth labels.
+  profile: PublicThreat;
   stage: ThreatStage;
 }
 
@@ -17,7 +34,7 @@ export interface SessionControllerOptions {
 }
 
 export class SessionController {
-  readonly scenario: Scenario;
+  readonly scenario: { threats: PublicThreat[] };
   readonly sessionId: string;
   readonly traineeId: string;
   readonly events: EventCreateRequest[] = [];
@@ -28,7 +45,7 @@ export class SessionController {
   private readonly now: () => number;
 
   constructor(
-    scenario: Scenario,
+    scenario: { threats: PublicThreat[] },
     sessionId: string,
     traineeId: string,
     options: SessionControllerOptions,
@@ -62,27 +79,37 @@ export class SessionController {
     this.record(events.threatSpawned(id, this.now()));
   }
 
-  detect(id: string): boolean {
+  detect(id: string, provenance: Record<string, unknown> = {}): boolean {
     const threat = this.threat(id);
     if (threat === undefined || threat.stage !== "spawned") return false;
     threat.stage = "detected";
-    this.record(events.threatDetected(id, this.now()));
+    // Provenance (which observer, which sensor) is recorded for the AAR
+    // timeline. Scoring ignores payloads, so this cannot change the score.
+    this.record(events.threatDetected(id, this.now(), provenance));
     return true;
   }
 
-  classify(id: string, label: ClassificationLabel): boolean {
+  classify(
+    id: string,
+    label: ClassificationLabel,
+    provenance: Record<string, unknown> = {},
+  ): boolean {
     const threat = this.threat(id);
     if (threat === undefined || threat.stage !== "detected") return false;
     threat.stage = "classified";
-    this.record(events.classification(id, label, this.now()));
+    this.record(events.classification(id, label, this.now(), provenance));
     return true;
   }
 
-  respond(id: string, response: ExpectedResponse): boolean {
+  respond(
+    id: string,
+    response: ExpectedResponse,
+    provenance: Record<string, unknown> = {},
+  ): boolean {
     const threat = this.threat(id);
     if (threat === undefined || threat.stage !== "classified") return false;
     threat.stage = "responded";
-    this.record(events.response(id, response, this.now()));
+    this.record(events.response(id, response, this.now(), provenance));
     this.record(events.threatResolved(id, this.now()));
     return true;
   }

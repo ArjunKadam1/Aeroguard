@@ -151,15 +151,20 @@ def test_performance_exposes_condition_specific_metrics(client) -> None:
         json={"trainee_id": "TRAIN-P5", "scenario_id": scenario["scenario_id"]},
     ).json()
     sid = session["session_id"]
+    cursor = 0
     for threat in scenario["threats"]:
+        # Decisions must follow the spawn and stay monotonic; the 2000ms
+        # detect -> respond latency is preserved so timing scores are unchanged.
+        base = max(cursor, int(round(threat["spawn_time"] * 1000)) + 500)
         for event in (
-            {"type": "THREAT_DETECTED", "timestamp_ms": 500, "threat_id": threat["id"]},
-            {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": 1500, "threat_id": threat["id"],
+            {"type": "THREAT_DETECTED", "timestamp_ms": base, "threat_id": threat["id"]},
+            {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": base + 1000, "threat_id": threat["id"],
              "payload": {"label": threat["classification_label"]}},
-            {"type": "RESPONSE_SUBMITTED", "timestamp_ms": 2500, "threat_id": threat["id"],
+            {"type": "RESPONSE_SUBMITTED", "timestamp_ms": base + 2000, "threat_id": threat["id"],
              "payload": {"response": threat["expected_response"]}},
         ):
             client.post(f"/api/v1/sessions/{sid}/events", json=event)
+        cursor = base + 2000 + 100
     client.post(f"/api/v1/sessions/{sid}/complete")
 
     body = client.get("/api/v1/trainees/TRAIN-P5/performance").json()
@@ -183,11 +188,12 @@ def test_recommend_reason_cites_condition_weakness_from_history(client) -> None:
         json={"trainee_id": "TRAIN-P5R", "scenario_id": rural["scenario_id"]},
     ).json()
     threat = rural["threats"][0]
+    base = int(round(threat["spawn_time"] * 1000)) + 500
     for event in (
-        {"type": "THREAT_DETECTED", "timestamp_ms": 500, "threat_id": threat["id"]},
-        {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": 1500, "threat_id": threat["id"],
+        {"type": "THREAT_DETECTED", "timestamp_ms": base, "threat_id": threat["id"]},
+        {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": base + 1000, "threat_id": threat["id"],
          "payload": {"label": threat["classification_label"]}},
-        {"type": "RESPONSE_SUBMITTED", "timestamp_ms": 2500, "threat_id": threat["id"],
+        {"type": "RESPONSE_SUBMITTED", "timestamp_ms": base + 2000, "threat_id": threat["id"],
          "payload": {"response": threat["expected_response"]}},
     ):
         client.post(f"/api/v1/sessions/{rural_session['session_id']}/events", json=event)

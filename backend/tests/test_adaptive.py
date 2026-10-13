@@ -187,3 +187,27 @@ def test_recommend_reason_omits_evidence_when_conditions_are_strong() -> None:
                low_sensor_score=80.0, overall_score=85.0)
     )
     assert "weakened conditions" not in result.reason.lower()
+
+
+def test_recommend_reason_cites_acquisition_lag() -> None:
+    result = build_recommendation(_input(mean_acquisition_ms=12400.0))
+    reason = result.reason.lower()
+    assert "acquisition lag" in reason
+    assert "12.4s" in reason
+    # Evidence only: the difficulty decision is unchanged.
+    assert result.recommended_difficulty == 3
+
+
+def test_recommend_reason_cites_radar_reliance() -> None:
+    result = build_recommendation(_input(radar_detection_share=0.75))
+    reason = result.reason.lower()
+    assert "radar reliance" in reason
+    assert "75%" in reason
+    assert result.recommended_difficulty == 3
+
+
+def test_recommend_reason_omits_observation_evidence_when_sharp() -> None:
+    result = build_recommendation(
+        _input(mean_acquisition_ms=2000.0, radar_detection_share=0.0)
+    )
+    assert "observation loop" not in result.reason.lower()

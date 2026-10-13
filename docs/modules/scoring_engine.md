@@ -143,3 +143,13 @@ Do not let Unity directly decide:
 Instead, Unity records the trainee action and the scoring engine evaluates it against the scenario ground truth.
 
 This keeps the scoring system testable and auditable.
+
+## 12. Version history
+
+- **v1:** timing rewards the detection→response latency only. Spawn→detection
+  is measured in the AAR but unscored.
+- **v2:** timing is the mean of the acquisition curve (spawn→detection) and
+  the decision curve (detection→response) on the same tier scale.
+  Component maxima (30/30/25/15) are unchanged, so v1 and v2 scores share
+  one 0–100 interpretation. Historical v1 rows keep their version and are
+  returned as stored; only new completions score under v2.

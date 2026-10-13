@@ -1,10 +1,11 @@
-import type { Scenario } from "../api/types";
-
 export class Spawner {
   private readonly pending: { id: string; spawn_time: number }[];
   private readonly onSpawn: (id: string) => void;
 
-  constructor(scenario: Scenario, onSpawn: (id: string) => void) {
+  constructor(
+    scenario: { threats: Array<{ id: string; spawn_time: number }> },
+    onSpawn: (id: string) => void,
+  ) {
     this.onSpawn = onSpawn;
     this.pending = scenario.threats.map((t) => ({ id: t.id, spawn_time: t.spawn_time }));
   }

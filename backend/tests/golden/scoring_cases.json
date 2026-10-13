@@ -240,5 +240,69 @@
       {"type": "RESPONSE_SUBMITTED", "timestamp_ms": 2000, "threat_id": "T01", "payload": {"response": "hold"}}
     ],
     "expected": {"detection_score": 30.0, "classification_score": 30.0, "response_score": 25.0, "timing_score": 15.0, "penalty": 0.0, "final_score": 100.0, "scoring_version": 1}
+  },
+  {
+    "name": "v2_perfect_acquisition",
+    "version": 2,
+    "scenario": {
+      "scenario_id": "SCN-000001", "seed": 1, "generator_version": "1.0",
+      "difficulty": 3, "environment": "rural", "time_of_day": "day",
+      "visibility": "clear", "sensor_quality": 0.9, "duration_seconds": 120.0,
+      "threats": [{"id": "T01", "classification_label": "hostile", "expected_response": "hold", "spawn_time": 10.0, "speed_class": "fast"}]
+    },
+    "events": [
+      {"type": "THREAT_DETECTED", "timestamp_ms": 11000, "threat_id": "T01", "payload": {}},
+      {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": 12000, "threat_id": "T01", "payload": {"label": "hostile"}},
+      {"type": "RESPONSE_SUBMITTED", "timestamp_ms": 13000, "threat_id": "T01", "payload": {"response": "hold"}}
+    ],
+    "expected": {"detection_score": 30.0, "classification_score": 30.0, "response_score": 25.0, "timing_score": 15.0, "penalty": 0.0, "final_score": 100.0, "scoring_version": 2}
+  },
+  {
+    "name": "v2_slow_acquisition",
+    "version": 2,
+    "scenario": {
+      "scenario_id": "SCN-000001", "seed": 1, "generator_version": "1.0",
+      "difficulty": 3, "environment": "rural", "time_of_day": "day",
+      "visibility": "clear", "sensor_quality": 0.9, "duration_seconds": 120.0,
+      "threats": [{"id": "T01", "classification_label": "hostile", "expected_response": "hold", "spawn_time": 10.0, "speed_class": "fast"}]
+    },
+    "events": [
+      {"type": "THREAT_DETECTED", "timestamp_ms": 16000, "threat_id": "T01", "payload": {}},
+      {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": 17000, "threat_id": "T01", "payload": {"label": "hostile"}},
+      {"type": "RESPONSE_SUBMITTED", "timestamp_ms": 18000, "threat_id": "T01", "payload": {"response": "hold"}}
+    ],
+    "expected": {"detection_score": 30.0, "classification_score": 30.0, "response_score": 25.0, "timing_score": 12.5, "penalty": 0.0, "final_score": 97.5, "scoring_version": 2}
+  },
+  {
+    "name": "v2_late_acquisition",
+    "version": 2,
+    "scenario": {
+      "scenario_id": "SCN-000001", "seed": 1, "generator_version": "1.0",
+      "difficulty": 3, "environment": "rural", "time_of_day": "day",
+      "visibility": "clear", "sensor_quality": 0.9, "duration_seconds": 120.0,
+      "threats": [{"id": "T01", "classification_label": "hostile", "expected_response": "hold", "spawn_time": 10.0, "speed_class": "fast"}]
+    },
+    "events": [
+      {"type": "THREAT_DETECTED", "timestamp_ms": 25000, "threat_id": "T01", "payload": {}},
+      {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": 26000, "threat_id": "T01", "payload": {"label": "hostile"}},
+      {"type": "RESPONSE_SUBMITTED", "timestamp_ms": 27000, "threat_id": "T01", "payload": {"response": "hold"}}
+    ],
+    "expected": {"detection_score": 30.0, "classification_score": 30.0, "response_score": 25.0, "timing_score": 7.5, "penalty": 0.0, "final_score": 92.5, "scoring_version": 2}
+  },
+  {
+    "name": "v2_slow_decision",
+    "version": 2,
+    "scenario": {
+      "scenario_id": "SCN-000001", "seed": 1, "generator_version": "1.0",
+      "difficulty": 3, "environment": "rural", "time_of_day": "day",
+      "visibility": "clear", "sensor_quality": 0.9, "duration_seconds": 120.0,
+      "threats": [{"id": "T01", "classification_label": "hostile", "expected_response": "hold", "spawn_time": 10.0, "speed_class": "fast"}]
+    },
+    "events": [
+      {"type": "THREAT_DETECTED", "timestamp_ms": 11000, "threat_id": "T01", "payload": {}},
+      {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": 12000, "threat_id": "T01", "payload": {"label": "hostile"}},
+      {"type": "RESPONSE_SUBMITTED", "timestamp_ms": 17000, "threat_id": "T01", "payload": {"response": "hold"}}
+    ],
+    "expected": {"detection_score": 30.0, "classification_score": 30.0, "response_score": 25.0, "timing_score": 12.5, "penalty": 0.0, "final_score": 97.5, "scoring_version": 2}
   }
 ]

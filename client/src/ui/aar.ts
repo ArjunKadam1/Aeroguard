@@ -1,5 +1,5 @@
 import type { ApiClient } from "../api/client";
-import type { AAR, PerformanceProfile, RecommendResponse, Scenario } from "../api/types";
+import type { AAR, PerformanceProfile, PublicScenario, RecommendResponse } from "../api/types";
 import { buildAarHtml, type SessionHeader } from "./aarView";
 
 // Renders the After Action Review from the server's own AAR, then layers in the
@@ -10,7 +10,7 @@ export function showAar(
   api: ApiClient,
   sessionId: string,
   traineeId: string,
-  scenario: Scenario,
+  scenario: PublicScenario,
   fallback: AAR,
   onAgain: () => void,
   unit: string | null = null,

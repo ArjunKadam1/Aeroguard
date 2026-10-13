@@ -6,6 +6,8 @@ CONTRACT = Path(__file__).resolve().parents[2] / "docs" / "api" / "openapi.yaml"
 
 EXPECTED_PATHS = {
     "/api/v1/scenarios/generate",
+    "/api/v1/scenarios/{scenario_id}/view",
+    "/api/v1/scenarios/scripted",
     "/api/v1/sessions",
     "/api/v1/sessions/{session_id}/events",
     "/api/v1/sessions/{session_id}/complete",
@@ -18,6 +20,10 @@ EXPECTED_SCHEMAS = {
     "ScenarioGenerateRequest",
     "Scenario",
     "ThreatProfile",
+    "PublicScenario",
+    "PublicThreat",
+    "ScriptedScenarioRequest",
+    "ScriptedScenarioSummary",
     "SessionCreateRequest",
     "SessionCreated",
     "EventCreateRequest",
@@ -27,6 +33,7 @@ EXPECTED_SCHEMAS = {
     "TimingMetrics",
     "Mistake",
     "AAR",
+    "GroundTruthItem",
     "PerformanceProfile",
     "RecommendRequest",
     "RecommendResponse",

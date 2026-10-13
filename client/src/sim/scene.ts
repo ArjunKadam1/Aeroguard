@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Scenario } from "../api/types";
+import type { PublicScenario } from "../api/types";
 import { buildWorld, type World } from "./world";
 
 export interface SimScene {
@@ -11,7 +11,7 @@ export interface SimScene {
   dispose(): void;
 }
 
-export function createSimScene(container: HTMLElement, scenario: Scenario): SimScene {
+export function createSimScene(container: HTMLElement, scenario: PublicScenario): SimScene {
   const scene = new THREE.Scene();
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });

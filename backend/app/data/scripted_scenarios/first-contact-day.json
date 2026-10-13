@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "title": "First Contact",
+    "briefing": "A single friendly contact in clear daytime conditions. Learn the observe -> identify -> decide loop."
+  },
+  "scenario_id": "SCRIPT-FIRST-CONTACT",
+  "seed": 1001,
+  "generator_version": "scripted-1.0",
+  "difficulty": 1,
+  "environment": "rural",
+  "time_of_day": "day",
+  "visibility": "clear",
+  "sensor_quality": 1.0,
+  "duration_seconds": 150.0,
+  "threats": [
+    {
+      "id": "T01",
+      "category": "unknown_aerial_object",
+      "classification_label": "friendly",
+      "expected_response": "monitor",
+      "spawn_time": 8.0,
+      "speed_class": "medium",
+      "visibility_class": "clear"
+    }
+  ]
+}

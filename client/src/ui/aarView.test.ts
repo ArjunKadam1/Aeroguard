@@ -7,6 +7,7 @@ import {
   errorBanner,
   formatMetric,
   formatSeconds,
+  groundTruthBlock,
   mistakeCounts,
   mistakeRows,
   mistakeSummary,
@@ -57,6 +58,10 @@ const aar: AAR = {
   weaknesses: ["Classification: lost 6.0 of 30."],
   recommendation: "Focus on classification in the next session.",
   timeline,
+  ground_truth: [
+    { threat_id: "T01", classification_label: "hostile", expected_response: "hold" },
+    { threat_id: "T02", classification_label: "civilian", expected_response: "monitor" },
+  ],
 };
 
 const profile: PerformanceProfile = {
@@ -139,6 +144,26 @@ describe("timeline", () => {
     expect(html).toContain("hold");
   });
 
+  it("shows sensor provenance on detection events", () => {
+    const html = timelineRows([
+      {
+        type: "THREAT_DETECTED" as const, timestamp_ms: 1000, threat_id: "T01",
+        payload: { observer: "scout", sensor: "radar" },
+      },
+    ]);
+    expect(html).toContain("scout · radar");
+  });
+
+  it("shows when the contact first entered the sensor picture", () => {
+    const html = timelineRows([
+      {
+        type: "THREAT_DETECTED" as const, timestamp_ms: 5000, threat_id: "T01",
+        payload: { observer: "station", sensor: "visual", first_seen_ms: 2300 },
+      },
+    ]);
+    expect(html).toContain("station · visual · first seen 2.3s");
+  });
+
   it("orders events by timestamp even if given out of order", () => {
     const shuffled = [timeline[4], timeline[0], timeline[2]];
     const html = timelineRows(shuffled);
@@ -157,6 +182,22 @@ describe("timeline", () => {
 
   it("wraps the timeline in its own card", () => {
     expect(timelineBlock(aar)).toContain("Timeline");
+  });
+});
+
+describe("ground truth reveal", () => {
+  it("lists every contact's answers after the session", () => {
+    const html = groundTruthBlock(aar);
+    expect(html).toContain("Ground truth");
+    expect(html).toContain("T01");
+    expect(html).toContain("hostile");
+    expect(html).toContain("hold");
+    expect(html).toContain("T02");
+    expect(html).toContain("civilian");
+  });
+
+  it("renders nothing when the server sent no reveal", () => {
+    expect(groundTruthBlock({ ...aar, ground_truth: [] })).toBe("");
   });
 });
 

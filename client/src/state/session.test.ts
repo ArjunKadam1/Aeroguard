@@ -1,20 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { EventCreateRequest, Scenario, ThreatProfile } from "../api/types";
-import { SessionController } from "./session";
+import type { EventCreateRequest, PublicThreat } from "../api/types";
+import { SessionController, initialSelectedThreatId } from "./session";
 
-function threat(id: string): ThreatProfile {
+function threat(id: string): PublicThreat {
   return {
-    id, category: "unknown_aerial_object", classification_label: "hostile",
-    expected_response: "hold", spawn_time: 1, speed_class: "medium", visibility_class: "clear",
+    id, spawn_time: 1, speed_class: "medium", visibility_class: "clear",
+    behavior: "steady-transit", cue_clear: true,
   };
 }
 
-function scenario(): Scenario {
-  return {
-    scenario_id: "SCN-000001", seed: 1, generator_version: "1.0", difficulty: 3,
-    environment: "urban", time_of_day: "day", visibility: "clear",
-    sensor_quality: 1, duration_seconds: 120, threats: [threat("T01"), threat("T02")],
-  };
+function scenario(): { threats: PublicThreat[] } {
+  return { threats: [threat("T01"), threat("T02")] };
 }
 
 function setup() {
@@ -27,7 +23,31 @@ function setup() {
   return { controller, emitted, setClock: (v: number) => { clock = v; } };
 }
 
+describe("initialSelectedThreatId", () => {
+  it("starts the ground station unlocked", () => {
+    expect(initialSelectedThreatId("station", ["T01", "T02"])).toBeNull();
+  });
+
+  it("preserves airborne first-contact selection", () => {
+    expect(initialSelectedThreatId("airborne", ["T01", "T02"])).toBe("T01");
+  });
+
+  it("handles an empty scenario in either mode", () => {
+    expect(initialSelectedThreatId("station", [])).toBeNull();
+    expect(initialSelectedThreatId("airborne", [])).toBeNull();
+  });
+});
+
 describe("SessionController", () => {
+  it("records sensor provenance on detection without affecting the stage machine", () => {
+    const { controller, emitted } = setup();
+    controller.start();
+    controller.spawnThreat("T01");
+    expect(controller.detect("T01", { observer: "scout", sensor: "radar" })).toBe(true);
+    const detection = emitted.find((e) => e.type === "THREAT_DETECTED");
+    expect(detection?.payload).toEqual({ observer: "scout", sensor: "radar" });
+  });
+
   it("emits SESSION_STARTED and SCENARIO_LOADED on start", () => {
     const { controller, emitted } = setup();
     controller.start();

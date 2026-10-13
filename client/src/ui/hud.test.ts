@@ -1,35 +1,41 @@
 import { describe, expect, it } from "vitest";
-import type { ClassificationLabel, Scenario, ThreatProfile } from "../api/types";
+import type { PublicScenario, PublicThreat } from "../api/types";
 import { buildHudHtml, threatDotColor, type HudThreatState } from "../ui/hud";
 
-function threat(id: string, label: ClassificationLabel, spawn_time = 1): ThreatProfile {
+const LEGEND = {
+  "steady-transit": "steady, level flight — often friendly",
+  indeterminate: "signature unreadable under current conditions",
+};
+
+function threat(id: string, behavior = "steady-transit", spawn_time = 1): PublicThreat {
   return {
-    id, category: "unknown_aerial_object", classification_label: label,
-    expected_response: "track", spawn_time, speed_class: "medium", visibility_class: "clear",
+    id, spawn_time, speed_class: "medium", visibility_class: "clear",
+    behavior, cue_clear: behavior !== "indeterminate",
   };
 }
 
-function scenario(threats: ThreatProfile[], overrides: Partial<Scenario> = {}): Scenario {
+function scenario(threats: PublicThreat[], overrides: Partial<PublicScenario> = {}): PublicScenario {
   return {
-    scenario_id: "SCN-000001", seed: 1, generator_version: "1.0", difficulty: 5,
+    scenario_id: "SCN-000001", seed: 1, observation_version: "1.0", difficulty: 5,
     environment: "urban", time_of_day: "day", visibility: "clear",
-    sensor_quality: 0.8, duration_seconds: 120, threats, ...overrides,
+    sensor_quality: 0.8, duration_seconds: 120, threats, cue_legend: LEGEND,
+    ...overrides,
   };
 }
 
 function states(...entries: [string, HudThreatState["stage"]][]): HudThreatState[] {
-  return entries.map(([id, stage]) => ({ id, stage }));
+  return entries.map(([id, stage]) => ({ id, stage, behavior: "steady-transit", track: "confirmed" }));
 }
 
 describe("buildHudHtml", () => {
-  it("lists every threat for a multi-threat scenario with a count header", () => {
+  it("lists observed contacts with a count header", () => {
     const html = buildHudHtml(
-      scenario([threat("T01", "hostile"), threat("T02", "friendly"), threat("T03", "unknown")]),
-      states(["T01", "spawned"], ["T02", "pending"], ["T03", "pending"]),
+      scenario([threat("T01"), threat("T02"), threat("T03")]),
+      states(["T01", "spawned"], ["T02", "spawned"], ["T03", "detected"]),
       "T02",
       60,
     );
-    expect(html).toContain("3 threats");
+    expect(html).toContain("3 contacts observed");
     expect(html).toContain("T01");
     expect(html).toContain("T02");
     expect(html).toContain("T03");
@@ -37,24 +43,68 @@ describe("buildHudHtml", () => {
     expect(html).toContain("on screen");
   });
 
-  it("never reveals the ground-truth classification label", () => {
+  it("shows the behavior signature next to each contact", () => {
     const html = buildHudHtml(
-      scenario([threat("T01", "hostile"), threat("T02", "friendly")]),
-      states(["T01", "classified"], ["T02", "responded"]),
+      scenario([threat("T01", "orbiting")]),
+      [{ id: "T01", stage: "spawned", behavior: "orbiting", track: "confirmed" }],
       "T01",
       30,
     );
-    // Stage text reflects trainee workflow only, never the true label/response.
-    expect(html).not.toContain("hostile");
-    expect(html).not.toContain("friendly");
-    expect(html).not.toContain("track");
-    expect(html).toContain("classified");
-    expect(html).toContain("resolved");
+    expect(html).toContain("orbiting");
+  });
+
+  it("shows the track lifecycle state next to each contact", () => {
+    const html = buildHudHtml(
+      scenario([threat("T01")]),
+      [{ id: "T01", stage: "spawned", behavior: "steady-transit", track: "coasting" }],
+      null,
+      30,
+    );
+    expect(html).toContain("coasting");
+  });
+
+  it("renders the shared cue legend without per-contact answers", () => {
+    const html = buildHudHtml(
+      scenario([threat("T01")]),
+      states(["T01", "spawned"]),
+      null,
+      30,
+    );
+    expect(html).toContain("SIGNATURES");
+    expect(html).toContain("steady-transit");
+    expect(html).not.toContain("classification_label");
+    expect(html).not.toContain("expected_response");
+  });
+
+  it("shows the station sensor section with no radar fitted", () => {
+    const html = buildHudHtml(
+      scenario([threat("T01")]),
+      states(["T01", "spawned"]),
+      null,
+      30,
+      "station",
+    );
+    expect(html).toContain("SENSORS · STATION");
+    expect(html).toContain("not fitted");
+  });
+
+  it("shows the scout radar capability and degradation reasons", () => {
+    const html = buildHudHtml(
+      scenario([threat("T01")], { time_of_day: "night", visibility: "poor", sensor_quality: 0.4 }),
+      states(["T01", "spawned"]),
+      null,
+      30,
+      "scout",
+    );
+    expect(html).toContain("SENSORS · SCOUT");
+    expect(html).toContain("400u");
+    expect(html).toContain("night");
+    expect(html).toContain("poor visibility");
   });
 
   it("marks the selected threat and shows remaining time", () => {
     const html = buildHudHtml(
-      scenario([threat("T01", "hostile"), threat("T02", "hostile")]),
+      scenario([threat("T01"), threat("T02")]),
       states(["T01", "pending"], ["T02", "pending"]),
       "T01",
       12.7,
@@ -66,7 +116,7 @@ describe("buildHudHtml", () => {
 
   it("shows degraded visibility in the conditions line", () => {
     const html = buildHudHtml(
-      scenario([threat("T01", "unknown")], { visibility: "poor" }),
+      scenario([threat("T01", "erratic")], { visibility: "poor" }),
       states(["T01", "pending"]),
       null,
       10,
@@ -75,48 +125,40 @@ describe("buildHudHtml", () => {
   });
 });
 
-describe("pending-threat countdown", () => {
-  it("tells the trainee when the next threat is expected", () => {
+describe("pending-threat timing privacy", () => {
+  it("never shows a spawn countdown for pending threats", () => {
     // duration 120, remaining 120 => elapsed 0, T02 spawns at 40s.
     const html = buildHudHtml(
-      scenario([threat("T01", "hostile", 10), threat("T02", "friendly", 40)]),
+      scenario([threat("T01", "steady-transit", 10), threat("T02", "orbiting", 40)]),
       states(["T01", "spawned"], ["T02", "pending"]),
       null,
       120,
     );
-    expect(html).toContain("in ~40s");
+    expect(html).not.toContain("in ~");
+    expect(html).not.toContain("hud-eta");
   });
 
-  it("counts down as the session advances", () => {
-    // remaining 100 => elapsed 20, so T02 is 20s away.
+  it("does not leak spawn timing as the session advances", () => {
+    // remaining 100 => elapsed 20, so T02 is 20s away in ground truth.
     const html = buildHudHtml(
-      scenario([threat("T01", "hostile", 10), threat("T02", "friendly", 40)]),
+      scenario([threat("T01", "steady-transit", 10), threat("T02", "orbiting", 40)]),
       states(["T01", "spawned"], ["T02", "pending"]),
       null,
       100,
     );
-    expect(html).toContain("in ~20s");
+    expect(html).not.toContain("in ~20s");
+    expect(html).not.toContain("40");
   });
 
-  it("omits the countdown once the threat has spawned", () => {
+  it("still reports the pending workflow stage without timing", () => {
     const html = buildHudHtml(
-      scenario([threat("T01", "hostile", 40)]),
-      states(["T01", "spawned"]),
-      null,
-      100,
-    );
-    expect(html).not.toContain("in ~");
-  });
-
-  it("drops the countdown once the spawn window has passed", () => {
-    // elapsed 60 is past the 40s spawn time even though the stage is still pending.
-    const html = buildHudHtml(
-      scenario([threat("T01", "hostile", 40)]),
+      scenario([threat("T01", "steady-transit", 40)]),
       states(["T01", "pending"]),
       null,
       60,
     );
-    expect(html).not.toContain("in ~0s");
+    expect(html).toContain("waiting");
+    expect(html).not.toContain("in ~");
   });
 });
 

@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "title": "Night Pair, Degraded Sensors",
+    "briefing": "Two contacts at night with reduced visibility and a degraded sensor. Signatures may read as indeterminate — decide when to commit and when to keep observing."
+  },
+  "scenario_id": "SCRIPT-NIGHT-PAIR",
+  "seed": 1002,
+  "generator_version": "scripted-1.0",
+  "difficulty": 8,
+  "environment": "urban",
+  "time_of_day": "night",
+  "visibility": "reduced",
+  "sensor_quality": 0.5,
+  "duration_seconds": 120.0,
+  "threats": [
+    {
+      "id": "T01",
+      "category": "unknown_aerial_object",
+      "classification_label": "hostile",
+      "expected_response": "hold",
+      "spawn_time": 10.0,
+      "speed_class": "fast",
+      "visibility_class": "reduced"
+    },
+    {
+      "id": "T02",
+      "category": "unknown_aerial_object",
+      "classification_label": "suspicious",
+      "expected_response": "report",
+      "spawn_time": 35.0,
+      "speed_class": "medium",
+      "visibility_class": "reduced"
+    }
+  ]
+}

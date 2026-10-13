@@ -36,6 +36,15 @@ class TimingMetrics(BaseModel):
     mean_total_decision_ms: float | None = None
 
 
+class GroundTruthItem(BaseModel):
+    """One contact's answers. Served only inside the post-completion AAR --
+    never during play -- so trainees can study what each signature meant."""
+
+    threat_id: str
+    classification_label: str
+    expected_response: str
+
+
 class AAR(BaseModel):
     session_id: str
     scenario_id: str
@@ -47,6 +56,7 @@ class AAR(BaseModel):
     weaknesses: list[str]
     recommendation: str
     timeline: list[EventCreateRequest]
+    ground_truth: list[GroundTruthItem] = []
 
 
 class PerformanceProfile(BaseModel):

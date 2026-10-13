@@ -21,11 +21,12 @@ def _scenario_from(body: dict) -> Scenario:
 
 def _events_for(body: dict) -> list[EventCreateRequest]:
     threat = body["threats"][0]
+    base = int(round(threat["spawn_time"] * 1000)) + 500
     return [
-        EventCreateRequest(type="THREAT_DETECTED", timestamp_ms=500, threat_id=threat["id"]),
-        EventCreateRequest(type="CLASSIFICATION_SUBMITTED", timestamp_ms=1500,
+        EventCreateRequest(type="THREAT_DETECTED", timestamp_ms=base, threat_id=threat["id"]),
+        EventCreateRequest(type="CLASSIFICATION_SUBMITTED", timestamp_ms=base + 1000,
                            threat_id=threat["id"], payload={"label": threat["classification_label"]}),
-        EventCreateRequest(type="RESPONSE_SUBMITTED", timestamp_ms=2500,
+        EventCreateRequest(type="RESPONSE_SUBMITTED", timestamp_ms=base + 2000,
                            threat_id=threat["id"], payload={"response": threat["expected_response"]}),
     ]
 

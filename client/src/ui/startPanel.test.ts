@@ -1,10 +1,112 @@
 import { describe, expect, it } from "vitest";
+import type { ScriptedScenarioSummary } from "../api/types";
 import {
+  MODE_HINT,
+  MODE_LABEL,
+  OPERATOR_MODES,
   buildStartPanelHtml,
   createStartPanelState,
   minimumDifficulty,
   parseStartForm,
+  resolveScenarioKey,
 } from "./startPanel";
+
+describe("operator mode", () => {
+  it("defaults to ground station, the role the problem statement describes", () => {
+    expect(createStartPanelState().mode).toBe("station");
+  });
+
+  it("offers both operator roles", () => {
+    expect(OPERATOR_MODES).toEqual(["station", "airborne"]);
+    for (const mode of OPERATOR_MODES) {
+      expect(MODE_LABEL[mode]).toBeTruthy();
+      expect(MODE_HINT[mode]).toBeTruthy();
+    }
+  });
+
+  it("renders both role buttons with the active one marked", () => {
+    const html = buildStartPanelHtml(createStartPanelState());
+    expect(html).toContain("GROUND STATION");
+    expect(html).toContain("AIRBORNE");
+    // The active class sits on the mode-btn class, before the data attribute.
+    expect(html).toMatch(/class="mode-btn is-active"[^>]*data-mode="station"/);
+  });
+
+  it("marks airborne active when selected", () => {
+    const html = buildStartPanelHtml({ ...createStartPanelState(), mode: "airborne" });
+    expect(html).toMatch(/class="mode-btn is-active"[^>]*data-mode="airborne"/);
+  });
+
+  it("explains that the station role has no flight controls", () => {
+    expect(buildStartPanelHtml(createStartPanelState())).toContain("No flight controls");
+  });
+});
+
+describe("scenario source", () => {
+  const options: ScriptedScenarioSummary[] = [
+    {
+      key: "first-contact-day", title: "First Contact", briefing: "Learn the loop.",
+      difficulty: 1, environment: "rural", time_of_day: "day", threat_count: 1,
+    },
+    {
+      key: "night-pair-degraded", title: "Night Pair", briefing: "Degraded sensors.",
+      difficulty: 8, environment: "urban", time_of_day: "night", threat_count: 2,
+    },
+  ];
+
+  it("defaults to procedural generation", () => {
+    expect(createStartPanelState().source).toBe("procedural");
+  });
+
+  it("renders both source buttons with procedural active", () => {
+    const html = buildStartPanelHtml(createStartPanelState());
+    expect(html).toContain("PROCEDURAL");
+    expect(html).toContain("SCRIPTED");
+    expect(html).toMatch(/class="mode-btn is-active"[^>]*data-source="procedural"/);
+  });
+
+  it("shows a loading state while the fixture catalog loads", () => {
+    const html = buildStartPanelHtml({ ...createStartPanelState(), source: "scripted" });
+    expect(html).toContain("Loading scripted scenarios");
+  });
+
+  it("renders the fixture picker and selected briefing once loaded", () => {
+    const html = buildStartPanelHtml({
+      ...createStartPanelState(),
+      source: "scripted",
+      scriptedOptions: options,
+      scenarioKey: "night-pair-degraded",
+    });
+    expect(html).toContain("night-pair-degraded");
+    expect(html).toContain("Degraded sensors.");
+    expect(html).not.toContain("Threat count");
+  });
+
+  it("surfaces a catalog load failure instead of failing silently", () => {
+    const html = buildStartPanelHtml({
+      ...createStartPanelState(),
+      source: "scripted",
+      scriptedOptions: [],
+      scriptedError: "backend down",
+    });
+    expect(html).toContain("backend down");
+  });
+
+  it("keeps identity fields visible in scripted mode", () => {
+    const html = buildStartPanelHtml({
+      ...createStartPanelState(), source: "scripted", scriptedOptions: options,
+    });
+    expect(html).toContain('id="trainee_id"');
+    expect(html).toContain('id="unit"');
+  });
+
+  it("resolveScenarioKey prefers the requested key and falls back to first", () => {
+    expect(resolveScenarioKey(options, "night-pair-degraded")).toBe("night-pair-degraded");
+    expect(resolveScenarioKey(options, "missing")).toBe("first-contact-day");
+    expect(resolveScenarioKey(options, "")).toBe("first-contact-day");
+    expect(resolveScenarioKey([], "")).toBe("");
+  });
+});
 
 describe("minimumDifficulty", () => {
   it("matches the backend additive difficulty model", () => {

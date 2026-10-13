@@ -14,6 +14,28 @@ export interface ScenarioGenerateRequest {
   seed?: number | null;
 }
 
+export type ScenarioSource = "procedural" | "scripted";
+
+/** One instructor-authored fixture, from GET /scenarios/scripted. */
+export interface ScriptedScenarioSummary {
+  key: string;
+  title: string;
+  briefing: string;
+  difficulty: number;
+  environment: Environment;
+  time_of_day: TimeOfDay;
+  threat_count: number;
+}
+
+/** Everything the start panel hands to the session runner. */
+export interface StartRequest {
+  source: ScenarioSource;
+  /** Procedural parameters; used when source is "procedural". */
+  generate: ScenarioGenerateRequest;
+  /** Fixture key; used when source is "scripted". */
+  scenarioKey: string;
+}
+
 export interface ThreatProfile {
   id: string;
   category: string;
@@ -44,6 +66,36 @@ export interface SessionCreateRequest {
   unit?: string | null;
 }
 export interface SessionCreated { session_id: string; status: "active"; }
+
+// --- Redacted scenario view (mirrors backend/app/schemas/observation.py) ---
+// Gameplay code must use these types, never Scenario/ThreatProfile: the view
+// carries kinematics plus observable behavior cues, but no classification
+// labels or expected responses.
+
+export interface PublicThreat {
+  id: string;
+  spawn_time: number;
+  speed_class: SpeedClass | null;
+  visibility_class: Visibility | null;
+  /** Observable behavior signature, or "indeterminate" when unreadable. */
+  behavior: string;
+  cue_clear: boolean;
+}
+
+export interface PublicScenario {
+  scenario_id: string;
+  seed: number;
+  observation_version: string;
+  difficulty: number;
+  environment: Environment;
+  time_of_day: TimeOfDay;
+  visibility: Visibility;
+  sensor_quality: number;
+  duration_seconds: number;
+  threats: PublicThreat[];
+  /** Shared recognition doctrine: behavior -> what it generally suggests. */
+  cue_legend: Record<string, string>;
+}
 
 export type EventType =
   | "SESSION_STARTED" | "SCENARIO_LOADED" | "THREAT_SPAWNED"
@@ -125,6 +177,12 @@ export interface AAR {
   weaknesses: string[];
   recommendation: string;
   timeline: EventCreateRequest[];
+  /** Per-contact answers; present only in the post-completion review. */
+  ground_truth: Array<{
+    threat_id: string;
+    classification_label: string;
+    expected_response: string;
+  }>;
 }
 
 export interface PerformanceProfile {

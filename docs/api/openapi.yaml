@@ -25,6 +25,66 @@ paths:
                 $ref: "#/components/schemas/Scenario"
         "422":
           description: Invalid scenario configuration
+  /api/v1/scenarios/{scenario_id}/view:
+    get:
+      summary: Redacted trainee view of a scenario
+      operationId: getScenarioView
+      description: >
+        Kinematics plus observable behavior cues only. The frozen Scenario
+        contract keeps classification labels and expected responses for
+        server-side scoring; this separate route never serves them.
+      parameters:
+        - name: scenario_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Public scenario view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicScenario"
+        "404":
+          description: Unknown scenario_id
+  /api/v1/scenarios/scripted:
+    get:
+      summary: Catalog of scripted scenarios
+      operationId: listScriptedScenarios
+      responses:
+        "200":
+          description: Available instructor-authored fixtures
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScriptedScenarioSummary"
+    post:
+      summary: Release a scripted fixture as a playable scenario
+      operationId: createScriptedScenario
+      description: >
+        The fixture is validated exactly like a generated scenario and
+        persisted through the same path, so scoring, AAR, and history are
+        identical for scripted and procedural sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptedScenarioRequest"
+      responses:
+        "200":
+          description: Released scenario (deterministic per key)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "404":
+          description: Unknown scenario_key
+        "422":
+          description: Invalid fixture
   /api/v1/sessions:
     post:
       summary: Create a training session for a trainee
@@ -281,6 +341,107 @@ components:
           visibility_class:
             type: string
             enum: [clear, reduced, poor]
+      PublicThreat:
+        type: object
+        required: [id, spawn_time, behavior, cue_clear]
+        properties:
+          id:
+            type: string
+            example: T01
+          spawn_time:
+            type: number
+            minimum: 0
+          speed_class:
+            type: string
+            enum: [slow, medium, fast]
+          visibility_class:
+            type: string
+            enum: [clear, reduced, poor]
+          behavior:
+            type: string
+            description: >
+              Observable behavior signature derived from ground truth
+              (e.g. steady-transit, orbiting, indeterminate). Never the
+              classification label itself.
+          cue_clear:
+            type: boolean
+            description: True when conditions allowed a clean signature read.
+      PublicScenario:
+        type: object
+        required: [scenario_id, seed, observation_version, difficulty, environment, time_of_day, visibility, sensor_quality, duration_seconds, threats, cue_legend]
+        properties:
+          scenario_id:
+            type: string
+            example: SCN-100
+          seed:
+            type: integer
+          observation_version:
+            type: string
+            example: "1.0"
+          difficulty:
+            type: integer
+            minimum: 1
+            maximum: 10
+          environment:
+            type: string
+            enum: [urban, rural]
+          time_of_day:
+            type: string
+            enum: [day, night]
+          visibility:
+            type: string
+            enum: [clear, reduced, poor]
+          sensor_quality:
+            type: number
+            minimum: 0
+            maximum: 1
+          duration_seconds:
+            type: number
+            minimum: 0
+            exclusiveMinimum: true
+          threats:
+            type: array
+            items:
+              $ref: "#/components/schemas/PublicThreat"
+          cue_legend:
+            type: object
+            additionalProperties:
+              type: string
+            description: >
+              Shared recognition doctrine mapping each behavior to what it
+              generally suggests. Identical for every scenario, so it teaches
+              signatures without revealing any contact's answer.
+      ScriptedScenarioRequest:
+        type: object
+        required: [scenario_key]
+        properties:
+          scenario_key:
+            type: string
+            example: first-contact-day
+      ScriptedScenarioSummary:
+        type: object
+        required: [key, title, briefing, difficulty, environment, time_of_day, threat_count]
+        properties:
+          key:
+            type: string
+            example: first-contact-day
+          title:
+            type: string
+          briefing:
+            type: string
+          difficulty:
+            type: integer
+            minimum: 1
+            maximum: 10
+          environment:
+            type: string
+            enum: [urban, rural]
+          time_of_day:
+            type: string
+            enum: [day, night]
+          threat_count:
+            type: integer
+            minimum: 1
       SessionCreateRequest:
         type: object
         required: [trainee_id, scenario_id]
@@ -422,7 +583,7 @@ components:
             type: string
       AAR:
         type: object
-        required: [session_id, scenario_id, summary, scores, timing, mistakes, strengths, weaknesses, recommendation, timeline]
+        required: [session_id, scenario_id, summary, scores, timing, mistakes, strengths, weaknesses, recommendation, timeline, ground_truth]
         properties:
           session_id:
             type: string
@@ -452,6 +613,25 @@ components:
             type: array
             items:
               $ref: "#/components/schemas/EventCreateRequest"
+          ground_truth:
+            type: array
+            description: >
+              Per-contact answers, served only inside the post-completion AAR
+              so trainees can study what each signature meant.
+            items:
+              $ref: "#/components/schemas/GroundTruthItem"
+      GroundTruthItem:
+        type: object
+        required: [threat_id, classification_label, expected_response]
+        properties:
+          threat_id:
+            type: string
+          classification_label:
+            type: string
+            enum: [friendly, civilian, unknown, suspicious, hostile]
+          expected_response:
+            type: string
+            enum: [monitor, track, report, hold]
       SessionHistoryItem:
         type: object
         required: [session_id, scenario_id, final_score, environment, time_of_day, difficulty, threat_count]

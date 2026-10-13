@@ -51,5 +51,41 @@ describe("createApiClient", () => {
     const api = createApiClient("/api/v1", fetchFn as unknown as typeof fetch);
     await expect(api.completeSession("SES-X")).rejects.toThrow(/404.*unknown session_id/);
   });
+
+  it("lists and releases scripted scenarios", async () => {
+    const catalog = [{ key: "first-contact-day", title: "First Contact" }];
+    const released = { scenario_id: "SCRIPT-FIRST-CONTACT" };
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(catalog))
+      .mockResolvedValueOnce(jsonResponse(released));
+    const api = createApiClient("/api/v1", fetchFn as unknown as typeof fetch);
+
+    expect(await api.listScriptedScenarios()).toEqual(catalog);
+    expect(fetchFn.mock.calls[0][0]).toBe("/api/v1/scenarios/scripted");
+
+    expect(await api.createScriptedScenario("first-contact-day")).toEqual(released);
+    const [url, init] = fetchFn.mock.calls[1];
+    expect(url).toBe("/api/v1/scenarios/scripted");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ scenario_key: "first-contact-day" });
+  });
+
+  it("fetches the redacted scenario view without ground-truth fields", async () => {
+    const view = {
+      scenario_id: "SCN-000001", observation_version: "1.0",
+      threats: [{ id: "T01", behavior: "orbiting", cue_clear: true }],
+      cue_legend: { orbiting: "circling — often suspicious" },
+    };
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(view));
+    const api = createApiClient("/api/v1", fetchFn as unknown as typeof fetch);
+
+    const result = await api.fetchScenarioView("SCN-000001");
+
+    expect(result).toEqual(view);
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe("/api/v1/scenarios/SCN-000001/view");
+    expect(init.method).toBe("GET");
+  });
 });
 

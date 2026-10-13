@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import type { Scenario } from "../api/types";
+import type { PublicScenario } from "../api/types";
 import { TERRAIN_SIZE, Terrain } from "./terrain";
 
 // Water sits just below the terrain edge, which is forced to y=0.
@@ -177,7 +177,7 @@ export interface World {
 
 export function buildWorld(
   scene: THREE.Scene,
-  scenario: Scenario,
+  scenario: PublicScenario,
   renderer: THREE.WebGLRenderer,
 ): World {
   const disposables: Array<{ dispose: () => void }> = [];

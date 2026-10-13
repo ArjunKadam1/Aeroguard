@@ -25,12 +25,24 @@ export const events = {
   scenarioLoaded: (ts: number) => buildEvent("SCENARIO_LOADED", ts),
   threatSpawned: (id: string, ts: number) =>
     buildEvent("THREAT_SPAWNED", ts, { threat_id: id }),
-  threatDetected: (id: string, ts: number) =>
-    buildEvent("THREAT_DETECTED", ts, { threat_id: id }),
-  classification: (id: string, label: ClassificationLabel, ts: number) =>
-    buildEvent("CLASSIFICATION_SUBMITTED", ts, { threat_id: id, payload: { label } }),
-  response: (id: string, response: ExpectedResponse, ts: number) =>
-    buildEvent("RESPONSE_SUBMITTED", ts, { threat_id: id, payload: { response } }),
+  threatDetected: (id: string, ts: number, payload: Record<string, unknown> = {}) =>
+    buildEvent("THREAT_DETECTED", ts, { threat_id: id, payload }),
+  classification: (
+    id: string,
+    label: ClassificationLabel,
+    ts: number,
+    provenance: Record<string, unknown> = {},
+  ) => buildEvent("CLASSIFICATION_SUBMITTED", ts, {
+    threat_id: id, payload: { label, ...provenance },
+  }),
+  response: (
+    id: string,
+    response: ExpectedResponse,
+    ts: number,
+    provenance: Record<string, unknown> = {},
+  ) => buildEvent("RESPONSE_SUBMITTED", ts, {
+    threat_id: id, payload: { response, ...provenance },
+  }),
   threatResolved: (id: string, ts: number) =>
     buildEvent("THREAT_RESOLVED", ts, { threat_id: id }),
   falseAlarm: (ts: number) => buildEvent("FALSE_ALARM", ts),

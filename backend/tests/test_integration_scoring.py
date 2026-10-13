@@ -10,9 +10,9 @@ from app.db.models import (
 from app.services.scoring import score
 
 # Independently verified vector for seed=4242, threat_count=2, one threat
-# fully handled (DETECTED@1000 -> correct CLASSIFICATION@2000 -> correct
-# RESPONSE@3000) and 0 false alarms: 30x(1/2), 30x(1/2), 25x(1/2), and
-# timing 2000ms -> 15 points / 2 threats = 7.5.
+# fully handled (DETECTED@spawn+1000 -> correct CLASSIFICATION@spawn+2000 ->
+# correct RESPONSE@spawn+3000) and 0 false alarms: 30x(1/2), 30x(1/2), 25x(1/2),
+# and timing 2000ms -> 15 points / 2 threats = 7.5.
 EXPECTED_DETECTION_SCORE = 15.0
 EXPECTED_CLASSIFICATION_SCORE = 15.0
 EXPECTED_RESPONSE_SCORE = 12.5
@@ -46,17 +46,18 @@ def test_full_session_lifecycle_is_deterministic(client, db_session) -> None:
     session_id = created.json()["session_id"]
 
     threat = scenario["threats"][0]
+    base = int(round(threat["spawn_time"] * 1000)) + 1000
     events = [
-        {"type": "THREAT_DETECTED", "timestamp_ms": 1000, "threat_id": threat["id"]},
+        {"type": "THREAT_DETECTED", "timestamp_ms": base, "threat_id": threat["id"]},
         {
             "type": "CLASSIFICATION_SUBMITTED",
-            "timestamp_ms": 2000,
+            "timestamp_ms": base + 1000,
             "threat_id": threat["id"],
             "payload": {"label": threat["classification_label"]},
         },
         {
             "type": "RESPONSE_SUBMITTED",
-            "timestamp_ms": 3000,
+            "timestamp_ms": base + 2000,
             "threat_id": threat["id"],
             "payload": {"response": threat["expected_response"]},
         },

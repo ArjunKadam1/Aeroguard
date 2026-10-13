@@ -4,10 +4,12 @@ import type {
   EventCreateRequest,
   EventCreated,
   PerformanceProfile,
+  PublicScenario,
   RecommendRequest,
   RecommendResponse,
   Scenario,
   ScenarioGenerateRequest,
+  ScriptedScenarioSummary,
   SessionCreateRequest,
   SessionCreated,
   SessionHistoryItem,
@@ -16,6 +18,9 @@ import type {
 
 export interface ApiClient {
   generateScenario(request: ScenarioGenerateRequest): Promise<Scenario>;
+  fetchScenarioView(scenarioId: string): Promise<PublicScenario>;
+  listScriptedScenarios(): Promise<ScriptedScenarioSummary[]>;
+  createScriptedScenario(scenarioKey: string): Promise<Scenario>;
   createSession(request: SessionCreateRequest): Promise<SessionCreated>;
   submitEvent(sessionId: string, event: EventCreateRequest): Promise<EventCreated>;
   completeSession(sessionId: string): Promise<CompleteResponse>;
@@ -61,6 +66,11 @@ export function createApiClient(
 
   return {
     generateScenario: (request) => post<Scenario>('/scenarios/generate', request),
+    fetchScenarioView: (scenarioId) =>
+      get<PublicScenario>('/scenarios/' + encodeURIComponent(scenarioId) + '/view'),
+    listScriptedScenarios: () => get<ScriptedScenarioSummary[]>('/scenarios/scripted'),
+    createScriptedScenario: (scenarioKey) =>
+      post<Scenario>('/scenarios/scripted', { scenario_key: scenarioKey }),
     createSession: (request) => post<SessionCreated>('/sessions', request),
     submitEvent: (sessionId, event) =>
       post<EventCreated>('/sessions/' + encodeURIComponent(sessionId) + '/events', event),

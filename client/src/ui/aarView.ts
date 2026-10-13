@@ -137,11 +137,20 @@ const EVENT_CLASS: Record<string, string> = {
 };
 
 // Decision payloads carry what the trainee actually chose, which is the only
-// place the AAR shows expected-vs-chosen side by side.
+// place the AAR shows expected-vs-chosen side by side. Detection events carry
+// sensor provenance (observer/sensor) plus when the contact first entered the
+// sensor picture -- the observable-vs-action comparison.
 function decisionDetail(event: EventCreateRequest): string {
   const payload = event.payload ?? {};
   if (typeof payload.label === "string") return payload.label;
   if (typeof payload.response === "string") return payload.response;
+  if (typeof payload.sensor === "string") {
+    const observer = typeof payload.observer === "string" ? `${payload.observer} · ` : "";
+    const seen = typeof payload.first_seen_ms === "number"
+      ? ` · first seen ${(payload.first_seen_ms / 1000).toFixed(1)}s`
+      : "";
+    return `${observer}${payload.sensor}${seen}`;
+  }
   return "";
 }
 
@@ -171,6 +180,25 @@ export function timelineBlock(aar: AAR): string {
     <table class="aar-table">
       <tr><th>time</th><th>contact</th><th>event</th><th>decision</th></tr>
       ${timelineRows(aar.timeline)}
+    </table>
+  </section>`;
+}
+
+// Post-session reveal: every contact's answers, so the trainee can study
+// what each observed signature actually meant. Served by the server only
+// inside the completed-session AAR -- never during play.
+export function groundTruthBlock(aar: AAR): string {
+  if (aar.ground_truth.length === 0) return "";
+  const rows = aar.ground_truth
+    .map((entry) =>
+      `<tr><td>${entry.threat_id}</td><td>${entry.classification_label}</td>`
+      + `<td>${entry.expected_response}</td></tr>`)
+    .join("");
+  return `<section class="aar-card aar-card-wide">
+    <h3>Ground truth — revealed after the session</h3>
+    <table class="aar-table">
+      <tr><th>contact</th><th>classification</th><th>expected response</th></tr>
+      ${rows}
     </table>
   </section>`;
 }
@@ -376,6 +404,7 @@ export function buildAarHtml(
       </section>
     </div>
     ${timelineBlock(aar)}
+    ${groundTruthBlock(aar)}
     ${performanceBlock(profile)}
     ${recommendationBlock(recommendation)}
     <div class="aar-actions">

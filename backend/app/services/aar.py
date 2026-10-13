@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.schemas.aar import AAR, Mistake, MistakeKind, TimingMetrics
+from app.schemas.aar import AAR, GroundTruthItem, Mistake, MistakeKind, TimingMetrics
 from app.schemas.events import EventCreateRequest, EventType
 from app.schemas.scenario import Scenario, ThreatProfile
 from app.schemas.scoring import ScoreResult
@@ -240,4 +240,12 @@ def build_aar(
         weaknesses=list(facts.weaknesses),
         recommendation=narrative.recommendation,
         timeline=timeline,
+        ground_truth=[
+            GroundTruthItem(
+                threat_id=threat.id,
+                classification_label=threat.classification_label.value,
+                expected_response=threat.expected_response.value,
+            )
+            for threat in scenario.threats
+        ],
     )

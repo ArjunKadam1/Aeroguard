@@ -77,11 +77,48 @@ def _average_reaction_ms(db: Session, session_id: str) -> float | None:
     return mean(latencies)
 
 
+def _observation_evidence(
+    scenario: ScenarioRow, session_id: str, db: Session
+) -> tuple[float | None, float | None]:
+    """(mean spawn->detection ms, share of detections via radar-only tracks).
+
+    Read from stored scenario spawns plus the sensor provenance the client
+    attaches to detection events. Display-only evidence for recommendations;
+    scoring never sees it.
+    """
+    rows = (
+        db.query(EventRow)
+        .filter(EventRow.session_id == session_id)
+        .order_by(EventRow.timestamp_ms, EventRow.event_id)
+        .all()
+    )
+    events = [event_row_to_request(row) for row in rows]
+    spawns = {
+        threat["id"]: int(round(float(threat["spawn_time"]) * 1000))
+        for threat in json.loads(scenario.threats_json)
+    }
+    acquisitions: list[float] = []
+    radar_detections = 0
+    detected = 0
+    for event in events:
+        if event.type != EventType.THREAT_DETECTED or event.threat_id is None:
+            continue
+        detected += 1
+        spawn_ms = spawns.get(event.threat_id)
+        if spawn_ms is not None:
+            acquisitions.append(float(max(0, event.timestamp_ms - spawn_ms)))
+        if event.payload.get("sensor") == "radar":
+            radar_detections += 1
+    share = (radar_detections / detected) if detected else None
+    return mean(acquisitions), share
+
+
 def _summary(db: Session, session: SessionRow) -> SessionSummary | None:
     score = db.get(ScoreRow, session.session_id)
     scenario = db.get(ScenarioRow, session.scenario_id)
     if score is None or scenario is None:
         return None
+    acquisition_ms, radar_share = _observation_evidence(scenario, session.session_id, db)
     return SessionSummary(
         final_score=score.final_score,
         detection_score=score.detection_score,
@@ -95,6 +132,8 @@ def _summary(db: Session, session: SessionRow) -> SessionSummary | None:
         average_reaction_ms=_average_reaction_ms(db, session.session_id),
         sensor_quality=scenario.sensor_quality,
         difficulty=scenario.difficulty,
+        mean_acquisition_ms=acquisition_ms,
+        radar_detection_share=radar_share,
     )
 
 
@@ -177,6 +216,14 @@ def recommend_training(
         reduced_visibility_score=profile.reduced_visibility_score,
         poor_visibility_score=profile.poor_visibility_score,
         low_sensor_score=profile.low_sensor_score,
+        mean_acquisition_ms=mean(
+            [summary.mean_acquisition_ms for summary in summaries
+             if summary.mean_acquisition_ms is not None]
+        ),
+        radar_detection_share=mean(
+            [summary.radar_detection_share for summary in summaries
+             if summary.radar_detection_share is not None]
+        ),
     )
     response = build_recommendation(data)
     profile.current_level = response.recommended_difficulty
@@ -244,6 +291,7 @@ def unit_performance(
         scenario = db.get(ScenarioRow, row.scenario_id)
         if score is None or scenario is None:
             continue
+        acquisition_ms, radar_share = _observation_evidence(scenario, row.session_id, db)
         summaries.append(
             SessionSummary(
                 final_score=score.final_score,
@@ -258,6 +306,8 @@ def unit_performance(
                 average_reaction_ms=_average_reaction_ms(db, row.session_id),
                 sensor_quality=scenario.sensor_quality,
                 difficulty=scenario.difficulty,
+                mean_acquisition_ms=acquisition_ms,
+                radar_detection_share=radar_share,
             )
         )
 

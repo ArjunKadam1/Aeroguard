@@ -1,17 +1,17 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import type { ClassificationLabel, SpeedClass, ThreatProfile } from "../api/types";
+import type { PublicThreat, SpeedClass } from "../api/types";
 import { createThreatView, updateThreatView } from "./threats";
 
-function threat(id: string, label: ClassificationLabel, speed: SpeedClass = "medium"): ThreatProfile {
+function threat(id: string, speed: SpeedClass = "medium"): PublicThreat {
   return {
-    id, category: "unknown_aerial_object", classification_label: label,
-    expected_response: "track", spawn_time: 1, speed_class: speed, visibility_class: "clear",
+    id, spawn_time: 1, speed_class: speed, visibility_class: "clear",
+    behavior: "steady-transit", cue_clear: true,
   };
 }
 
-function colorOf(id: string, label: ClassificationLabel): number {
-  const view = createThreatView(threat(id, label));
+function colorOf(id: string): number {
+  const view = createThreatView(threat(id));
   // Core mesh carries the id-hash color; the shell is a fixed dark outline.
   const core = view.mesh.getObjectByName(`threat-core-${id}`) as THREE.Mesh;
   const material = core.material as THREE.MeshBasicMaterial;
@@ -19,21 +19,19 @@ function colorOf(id: string, label: ClassificationLabel): number {
 }
 
 describe("createThreatView", () => {
-  it("derives color from the threat id, not the ground-truth classification label", () => {
-    expect(colorOf("T01", "hostile")).toBe(colorOf("T01", "friendly"));
-    expect(colorOf("T01", "hostile")).toBe(colorOf("T01", "civilian"));
-    expect(colorOf("T01", "hostile")).toBe(colorOf("T01", "unknown"));
+  it("derives color from the threat id only", () => {
+    expect(colorOf("T01")).toBe(colorOf("T01"));
   });
 
   it("still varies color across different threats", () => {
     const seen = new Set(
-      ["T01", "T02", "T03", "T04", "T05"].map((id) => colorOf(id, "hostile")),
+      ["T01", "T02", "T03", "T04", "T05"].map((id) => colorOf(id)),
     );
     expect(seen.size).toBeGreaterThan(1);
   });
 
   it("uses a self-lit core that ignores fog, inside a dark outline shell", () => {
-    const view = createThreatView(threat("T01", "hostile"));
+    const view = createThreatView(threat("T01"));
     const core = view.mesh.getObjectByName("threat-core-T01") as THREE.Mesh;
     const coreMat = core.material as THREE.MeshBasicMaterial;
     // fog:false is what stops the threat washing out against the sky.
@@ -50,7 +48,7 @@ describe("createThreatView", () => {
 });
 
 describe("updateThreatView", () => {
-  function xAt(profile: ThreatProfile, elapsedSec: number): number {
+  function xAt(profile: PublicThreat, elapsedSec: number): number {
     const view = createThreatView(profile);
     updateThreatView(view, elapsedSec);
     return view.mesh.position.x;
@@ -59,7 +57,7 @@ describe("updateThreatView", () => {
   it("stays inside the corridor for the whole session at every speed", () => {
     const speeds: SpeedClass[] = ["slow", "medium", "fast"];
     for (const speed of speeds) {
-      const profile = threat("T01", "hostile", speed);
+      const profile = threat("T01", speed);
       for (let t = 0; t <= 600; t += 0.5) {
         const x = xAt(profile, t);
         expect(x).toBeGreaterThanOrEqual(-70);
@@ -69,7 +67,7 @@ describe("updateThreatView", () => {
   });
 
   it("re-enters the corridor instead of flying off permanently", () => {
-    const profile = threat("T01", "hostile", "medium");
+    const profile = threat("T01", "medium");
     // One lap is 120 units at 6 units/sec = 20s, measured from the spawn time.
     const atSpawn = xAt(profile, profile.spawn_time);
     expect(xAt(profile, profile.spawn_time + 20)).toBeCloseTo(atSpawn, 5);
@@ -77,7 +75,7 @@ describe("updateThreatView", () => {
   });
 
   it("advances forward, wrapping back to the start rather than jumping off-screen", () => {
-    const profile = threat("T01", "hostile", "fast");
+    const profile = threat("T01", "fast");
     let previous = xAt(profile, profile.spawn_time);
     // A lap is 120 units at 10 units/sec = 12s. Each step must either move
     // forward or wrap back to the start of the corridor, never overshoot past it.
@@ -95,7 +93,7 @@ describe("updateThreatView", () => {
   });
 
   it("keeps the threat hidden until its spawn time", () => {
-    const profile = threat("T01", "hostile", "medium");
+    const profile = threat("T01", "medium");
     const view = createThreatView(profile);
     updateThreatView(view, 0);
     expect(view.mesh.visible).toBe(false);
@@ -104,7 +102,7 @@ describe("updateThreatView", () => {
   });
 
   it("stays deterministic for a given elapsed time", () => {
-    const profile = threat("T01", "hostile", "medium");
+    const profile = threat("T01", "medium");
     expect(xAt(profile, 37.5)).toBe(xAt(profile, 37.5));
   });
 });

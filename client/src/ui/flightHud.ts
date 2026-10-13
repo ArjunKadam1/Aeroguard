@@ -6,6 +6,9 @@ export type FlightHudData = InstrumentData;
 
 export interface FlightHud {
   update(data: FlightHudData): void;
+  /** Keyboard-help panel, exposed so the caller can place it (e.g. stacked
+   * with the radar scope instead of overlapping it). */
+  help: HTMLElement;
 }
 
 export function mountFlightHud(
@@ -37,6 +40,7 @@ export function mountFlightHud(
   element.addEventListener("click", onCycleCamera);
 
   return {
+    help,
     update(next) {
       data = next;
       // Rebuild only when a displayed value actually changes, so the DOM is not

@@ -17,11 +17,12 @@ def _play(client, scenario, *, correct: bool, trainee_id: str = "TRAIN-001") -> 
     ).json()
     sid = session["session_id"]
     if correct:
+        base = int(round(threat["spawn_time"] * 1000)) + 500
         events = [
-            {"type": "THREAT_DETECTED", "timestamp_ms": 500, "threat_id": threat["id"]},
-            {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": 1500, "threat_id": threat["id"],
+            {"type": "THREAT_DETECTED", "timestamp_ms": base, "threat_id": threat["id"]},
+            {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": base + 1000, "threat_id": threat["id"],
              "payload": {"label": threat["classification_label"]}},
-            {"type": "RESPONSE_SUBMITTED", "timestamp_ms": 2500, "threat_id": threat["id"],
+            {"type": "RESPONSE_SUBMITTED", "timestamp_ms": base + 2000, "threat_id": threat["id"],
              "payload": {"response": threat["expected_response"]}},
         ]
         for event in events:
@@ -94,3 +95,40 @@ def test_recommend_hold_reason_does_not_claim_a_fixed_score_band(client) -> None
     assert body["recommended_difficulty"] == 4
     assert "100.0" in body["reason"]
     assert "60-89" not in body["reason"]
+
+
+def _play_slow_acquisition(client, seed: int, trainee_id: str, sensor: str | None) -> None:
+    scenario = _scenario(client, seed, difficulty=3)
+    threat = scenario["threats"][0]
+    session = client.post(
+        "/api/v1/sessions",
+        json={"trainee_id": trainee_id, "scenario_id": scenario["scenario_id"]},
+    ).json()
+    sid = session["session_id"]
+    base = int(round(threat["spawn_time"] * 1000)) + 12000
+    detect_payload = {"sensor": sensor} if sensor else {}
+    events = [
+        {"type": "THREAT_DETECTED", "timestamp_ms": base, "threat_id": threat["id"],
+         "payload": detect_payload},
+        {"type": "CLASSIFICATION_SUBMITTED", "timestamp_ms": base + 1000,
+         "threat_id": threat["id"], "payload": {"label": threat["classification_label"]}},
+        {"type": "RESPONSE_SUBMITTED", "timestamp_ms": base + 2000,
+         "threat_id": threat["id"], "payload": {"response": threat["expected_response"]}},
+    ]
+    for event in events:
+        assert client.post(f"/api/v1/sessions/{sid}/events", json=event).status_code == 201
+    client.post(f"/api/v1/sessions/{sid}/complete")
+
+
+def test_recommend_cites_acquisition_lag(client) -> None:
+    _play_slow_acquisition(client, seed=40, trainee_id="TRAIN-LAG", sensor="visual")
+    body = client.post("/api/v1/training/recommend", json={"trainee_id": "TRAIN-LAG"}).json()
+    assert "acquisition lag" in body["reason"].lower()
+
+
+def test_recommend_cites_radar_reliance(client) -> None:
+    _play_slow_acquisition(client, seed=41, trainee_id="TRAIN-RADAR", sensor="radar")
+    body = client.post("/api/v1/training/recommend", json={"trainee_id": "TRAIN-RADAR"}).json()
+    reason = body["reason"].lower()
+    assert "radar reliance" in reason
+    assert "100%" in body["reason"]
