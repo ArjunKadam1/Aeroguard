@@ -114,6 +114,17 @@ describe("buildHudHtml", () => {
     expect(html).not.toMatch(/class="hud-threat is-selected" data-threat="T02"/);
   });
 
+  it("carries every row id as data-threat for the 2D selection path", () => {
+    const html = buildHudHtml(
+      scenario([threat("T01"), threat("T02")]),
+      states(["T01", "spawned"], ["T02", "detected"]),
+      null,
+      10,
+    );
+    expect(html).toMatch(/data-threat="T01"/);
+    expect(html).toMatch(/data-threat="T02"/);
+  });
+
   it("shows degraded visibility in the conditions line", () => {
     const html = buildHudHtml(
       scenario([threat("T01", "erratic")], { visibility: "poor" }),

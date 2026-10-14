@@ -1,11 +1,10 @@
-import * as THREE from "three";
 import { createApiClient } from "./api/client";
 import type { AAR, PublicScenario, StartRequest } from "./api/types";
 import {
   applyCamera, applyStationCamera, createAircraft, nextCameraMode, spinRotors, type CameraMode,
 } from "./sim/aircraft";
 import {
-  GRAVITY, altitudeAgl, createFlightState, speedOf, stepFlight,
+  GRAVITY, altitudeAgl, createFlightState, forwardVector, speedOf, stepFlight,
 } from "./sim/flight";
 import {
   clearControls, createControlState, isFlightKey, press, readControls, release,
@@ -26,19 +25,21 @@ import {
   type Observer,
   type SensorConditions,
   type Track,
-  type Vec3,
 } from "./sim/observation";
 import { createSimScene } from "./sim/scene";
 import { Spawner } from "./sim/spawner";
 import { createThreatView, updateThreatView, THREAT_CRUISE_ALTITUDE, type ThreatView } from "./sim/threats";
 import { SessionController, initialSelectedThreatId } from "./state/session";
 import { createEventQueue } from "./state/eventQueue";
+import { createViewModeStore, DEFAULT_VIEW_MODE } from "./state/viewMode";
 import { mountActions } from "./ui/actions";
 import { mountFlightHud } from "./ui/flightHud";
 import { mountHud } from "./ui/hud";
 import { mountRadar } from "./ui/radar";
+import { mountSensorPlot } from "./ui/sensorPlot";
 import { mountStartPanel, type OperatorMode, type StartPanel } from "./ui/startPanel";
 import { mountStationHelp } from "./ui/stationHelp";
+import { mountViewBar } from "./ui/viewBar";
 
 const api = createApiClient();
 const app = document.getElementById("app")!;
@@ -149,7 +150,7 @@ function startPlay(
     mode,
     scenario.threats.map((threat) => threat.id),
   );
-  const hud = mountHud(app, scenario, airborne ? "scout" : "station");
+  const hud = mountHud(app, scenario, airborne ? "scout" : "station", (id) => selectContact(id));
   hud.setSelected(selected);
 
   // Sensor conditions never change mid-session; the observation model reads
@@ -167,14 +168,16 @@ function startPlay(
   // First-seen timestamps per track, for the AAR's observable-vs-action view:
   // when the contact entered the sensor picture vs when the trainee acted.
   const firstSeen = new Map<string, number>();
-  // Render-camera forward from the previous frame, for the scout observer.
-  let cameraForward: Vec3 = { x: 0, y: 0, z: -1 };
 
   function buildObserver(): Observer {
     if (!airborne) return stationObserver(stationHeading);
+    // Nose-mounted sensor: the look direction comes from the authoritative
+    // flight attitude, never from a display camera. FPV looks along exactly
+    // this vector, so FPV sensing is unchanged; chase/gimbal views no longer
+    // steer the sensor. Stepping the sim therefore needs no rendered camera.
     return scoutObserver(
       { x: flight.position.x, y: flight.position.y, z: flight.position.z },
-      cameraForward,
+      forwardVector(flight.attitude),
     );
   }
 
@@ -233,15 +236,73 @@ function startPlay(
   // blip selects the track; classification still needs the visual sensor.
   const radar = airborne ? mountRadar(app, (id) => selectContact(id)) : null;
 
+  // Right rails (world-view layout): flight help above the radar scope, so
+  // neither panel can overlap the other.
+  let airborneRail: HTMLElement | null = null;
   if (airborne && flightHud && radar) {
     // Right rail: keyboard help above the radar scope. Both panels were
     // absolutely positioned top-right and overlapped; stacking them in a
     // column keeps either height change from ever colliding again.
-    const rail = document.createElement("div");
-    rail.id = "right-rail";
-    rail.append(flightHud.help, radar.root);
-    app.appendChild(rail);
+    airborneRail = document.createElement("div");
+    airborneRail.id = "right-rail";
+    airborneRail.append(flightHud.help, radar.root);
+    app.appendChild(airborneRail);
   }
+
+  // View modes: 2D Sensors is the default working view, 3D World keeps the
+  // spatial scene, Split shows both side by side. Switching only shows/hides
+  // views and skips the 3D draw -- the scenario, clock, tracks, selection, and events are untouched, so the
+  // session continues identically in either view. The ground station's 2D
+  // view is the sector plot; the scout's is its radar scope (already a 2D
+  // sensor display, now also the default).
+  const viewStore = createViewModeStore(DEFAULT_VIEW_MODE);
+  const viewBar = mountViewBar(app, (mode) => viewStore.set(mode));
+  const plot = airborne ? null : mountSensorPlot(app, (id) => selectContact(id));
+  // Center stage for the 2D sensor view: the sector plot (station) or radar
+  // scope (scout) moves here large and centred; the rails keep the help and
+  // instrument panels. Moving nodes preserves their listeners and state.
+  const stage = document.createElement("div");
+  stage.id = "sensor-stage";
+  app.appendChild(stage);
+  // Assigned by the station rail block below; applyView first runs after it.
+  let stationRail: HTMLElement | null = null;
+  function applyView(): void {
+    const mode = viewStore.get();
+    // Sensors view hides the scene; world and split both draw it.
+    sceneContainer.classList.toggle("is-hidden", mode === "sensors");
+    // World view hides the sensor stage; sensors and split both show it
+    // (centred overlay vs docked side panel, via CSS).
+    stage.classList.toggle("is-hidden", mode === "world");
+    app.classList.toggle("view-split", mode === "split");
+    // Split narrows the scene container: refit the canvas to it (a no-op
+    // while hidden, where the size reads 0 and no draw happens).
+    sim.resize();
+    if (mode === "world") {
+      // 3D World: sensor panels dock back into their right rails.
+      if (stationRail && stationHelp && plot) stationRail.append(stationHelp, plot.root);
+      if (airborneRail && flightHud && radar) airborneRail.append(flightHud.help, radar.root);
+      plot?.root.classList.toggle("is-hidden", true);
+    } else {
+      // 2D Sensors and Split: the plot/scope lives on the sensor stage.
+      if (plot) {
+        stage.append(plot.root);
+        plot.root.classList.toggle("is-hidden", false);
+      }
+      if (radar) stage.append(radar.root);
+    }
+    viewBar.set(mode);
+  }
+  viewStore.subscribe(applyView);
+
+  if (!airborne && stationHelp && plot) {
+    // Right rail (station): control hints above the sector plot, mirroring
+    // the airborne rail so neither panel can overlap the other.
+    stationRail = document.createElement("div");
+    stationRail.id = "right-rail";
+    stationRail.append(stationHelp, plot.root);
+    app.appendChild(stationRail);
+  }
+  applyView();
 
   function respawn(): void {
     const fresh = createFlightState(0, sim.world.heightAt(0, 0) + 120, 120);
@@ -432,6 +493,9 @@ onDetect: () => {
     await queue.flush();
     const result = await api.completeSession(sessionId);
     sim.dispose();
+    // Tear down the session UI (scene, HUD, actions, sensor panels, view bar)
+    // so the review owns the screen. showAar appends without clearing.
+    clear();
     // Local review shown immediately; the server AAR replaces it on arrival.
     const fallbackAar: AAR = {
       session_id: sessionId,
@@ -467,15 +531,16 @@ onDetect: () => {
   }
 
   let lastFrameMs = performance.now();
-  function frame(): void {
-    if (finishing) return;
-    const nowMs = performance.now();
-    // Clamp dt so an alt-tab or a slow first frame cannot tunnel the aircraft
-    // through the ground.
-    const dt = Math.min((nowMs - lastFrameMs) / 1000, 0.05);
-    lastFrameMs = nowMs;
-    const elapsedSec = (nowMs - startedAt) / 1000;
 
+  /**
+   * Advance the authoritative simulation by one frame: flight physics, station
+   * mast heading, sensor tracks, scenario spawning, and contact motion.
+   * Simulation only — it never positions a camera and never draws, so a
+   * future 2D view can step the session without a rendered 3D scene. The
+   * per-tick radar panel push below is a tick-rate view write (unchanged
+   * cadence); V1 will route view writes per active view.
+   */
+  function stepSim(dt: number, elapsedSec: number): void {
     if (airborne) {
       stepFlight(flight, readControls(controls, dt), dt, flightEnv);
       aircraft.position.set(flight.position.x, flight.position.y, flight.position.z);
@@ -484,31 +549,10 @@ onDetect: () => {
       // Keep the shadow frustum centred on the aircraft so the tight ortho box
       // always contains what the camera is looking at.
       sim.world.aimSunAt(aircraft.position.x, aircraft.position.y, aircraft.position.z);
-    }
-
-    const focusView = selected ? views.get(selected) : undefined;
-    const focusPoint = focusView && focusView.mesh.visible
-      ? focusView.mesh.position.clone()
-      : null;
-
-    if (airborne) {
-      // The gimbal is a sensor, not a cheat: it tracks the selected contact
-      // only while a sensor track holds it. Otherwise it looks ahead, so an
-      // undetected contact cannot be stared at for free.
-      const tracked = selected !== null && tracks.some((t) => t.id === selected);
-      applyCamera(
-        sim.camera,
-        cameraMode,
-        { state: flight, focus: tracked ? focusPoint : null, elapsedSec },
-        dt,
-      );
-      const forward = sim.camera.getWorldDirection(new THREE.Vector3());
-      cameraForward = { x: forward.x, y: forward.y, z: forward.z };
     } else {
-      // Ground station: a fixed mast that pans only while the sweep key is held
-      // and locks once the trainee selects a contact.
+      // Ground station: the mast pans only while the sweep key is held. The
+      // heading is simulation state; pointing the camera at it is rendering.
       stationHeading = advanceStationHeading(stationHeading, sweeping, dt);
-      applyStationCamera(sim.camera, { heading: stationHeading, focus: focusPoint }, dt);
     }
 
     // Unified sensor update on fixed time quanta (both modes): raw visual
@@ -534,11 +578,13 @@ onDetect: () => {
           firstSeen.set(track.id, Math.round(elapsedSec * 1000));
         }
       }
-      radar?.setTracks(
-        tracks.filter((t) => t.lastSource !== "visual"),
-        SCOUT_RADAR_RANGE,
-        sweepIndex,
-      );
+      // Scout 2D view: the scope shows every track, styled by source --
+      // radar-held solid, visual-held as rings -- so nothing observable is
+      // hidden from the sensor display.
+      radar?.setTracks(tracks, SCOUT_RADAR_RANGE, sweepIndex);
+      // Station 2D view: the sector plot follows the same tick with the live
+      // mast heading, so the wedge shows where the sensor is looking.
+      plot?.setTracks(tracks, trackTickNow, stationHeading, selected);
     }
 
     spawner.update(elapsedSec);
@@ -550,6 +596,40 @@ onDetect: () => {
         view.mesh.position.z,
       ) + THREAT_CRUISE_ALTITUDE + Math.sin(elapsedSec) * 2;
     }
+  }
+
+  /**
+   * Render the current simulation state. The world and split views position
+   * the cameras and draw the 3D scene; the sensor view skips the draw (the
+   * canvas is hidden) while HUD/radar/plot panels keep syncing, so the
+   * session advances identically with no 3D rendering.
+   */
+  function renderViews(dt: number, elapsedSec: number): void {
+    if (viewStore.get() !== "sensors") {
+      const focusView = selected ? views.get(selected) : undefined;
+      const focusPoint = focusView && focusView.mesh.visible
+        ? focusView.mesh.position.clone()
+        : null;
+
+      if (airborne) {
+        // The gimbal is a sensor, not a cheat: it tracks the selected contact
+        // only while a sensor track holds it. Otherwise it looks ahead, so an
+        // undetected contact cannot be stared at for free.
+        const tracked = selected !== null && tracks.some((t) => t.id === selected);
+        applyCamera(
+          sim.camera,
+          cameraMode,
+          { state: flight, focus: tracked ? focusPoint : null, elapsedSec },
+          dt,
+        );
+      } else {
+        // Ground station: a fixed mast that pans only while the sweep key is held
+        // and locks once the trainee selects a contact.
+        applyStationCamera(sim.camera, { heading: stationHeading, focus: focusPoint }, dt);
+      }
+      sim.render();
+    }
+
     syncHudThreats();
     hud.setRemaining(scenario.duration_seconds - elapsedSec);
     if (flightHud) {
@@ -562,7 +642,20 @@ onDetect: () => {
         heading: flight.attitude.y,
       });
     }
-    sim.render();
+  }
+
+  function frame(): void {
+    if (finishing) return;
+    const nowMs = performance.now();
+    // Clamp dt so an alt-tab or a slow first frame cannot tunnel the aircraft
+    // through the ground.
+    const dt = Math.min((nowMs - lastFrameMs) / 1000, 0.05);
+    lastFrameMs = nowMs;
+    const elapsedSec = (nowMs - startedAt) / 1000;
+
+    // Exactly one loop, one state: step the simulation, then draw it.
+    stepSim(dt, elapsedSec);
+    renderViews(dt, elapsedSec);
     if (!finishing && elapsedSec >= scenario.duration_seconds) {
       void finish();
       return;

@@ -204,6 +204,109 @@ export function groundTruthBlock(aar: AAR): string {
 }
 
 // ---------------------------------------------------------------------------
+// Per-contact story
+// ---------------------------------------------------------------------------
+
+export interface ContactCard {
+  id: string;
+  truthLabel: string;
+  truthResponse: string;
+  spawnedMs: number | null;
+  detectedMs: number | null;
+  detectSensor: string | null;
+  firstSeenMs: number | null;
+  classifiedAs: string | null;
+  classificationOk: boolean | null;
+  respondedAs: string | null;
+  responseOk: boolean | null;
+  mistakeKinds: string[];
+}
+
+function payloadString(payload: Record<string, unknown> | undefined, key: string): string | null {
+  const value = payload?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function payloadMs(payload: Record<string, unknown> | undefined, key: string): number | null {
+  const value = payload?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+/**
+ * One narrative card per contact: what it was, when it entered the sensor
+ * picture, what the trainee did at each step, and what went wrong.
+ * Assembled from timeline first-events plus the post-session reveal --
+ * no new data, just the story the tables only imply.
+ */
+export function contactCards(aar: AAR): ContactCard[] {
+  const firstBy = (type: string, id: string) =>
+    aar.timeline.find((event) => event.type === type && event.threat_id === id);
+  return aar.ground_truth.map((truth) => {
+    const spawned = firstBy("THREAT_SPAWNED", truth.threat_id);
+    const detected = firstBy("THREAT_DETECTED", truth.threat_id);
+    const classified = firstBy("CLASSIFICATION_SUBMITTED", truth.threat_id);
+    const responded = firstBy("RESPONSE_SUBMITTED", truth.threat_id);
+    const label = payloadString(classified?.payload, "label");
+    const response = payloadString(responded?.payload, "response");
+    const sensor = payloadString(detected?.payload, "sensor");
+    const observer = payloadString(detected?.payload, "observer");
+    return {
+      id: truth.threat_id,
+      truthLabel: truth.classification_label,
+      truthResponse: truth.expected_response,
+      spawnedMs: spawned?.timestamp_ms ?? null,
+      detectedMs: detected?.timestamp_ms ?? null,
+      detectSensor: observer && sensor ? `${observer} · ${sensor}` : sensor,
+      firstSeenMs: payloadMs(detected?.payload, "first_seen_ms"),
+      classifiedAs: label,
+      classificationOk: label === null ? null : label === truth.classification_label,
+      respondedAs: response,
+      responseOk: response === null ? null : response === truth.expected_response,
+      mistakeKinds: aar.mistakes
+        .filter((m) => m.threat_id === truth.threat_id)
+        .map((m) => m.kind),
+    };
+  });
+}
+
+function seconds(ms: number | null): string {
+  return ms === null ? "—" : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function verdict(ok: boolean | null, Fallback = "—"): string {
+  if (ok === null) return `<span class="cc-dim">${Fallback}</span>`;
+  return ok ? `<span class="cc-ok">✓</span>` : `<span class="cc-bad">✗</span>`;
+}
+
+export function contactCardsBlock(aar: AAR): string {
+  const cards = contactCards(aar);
+  if (cards.length === 0) return "";
+  const html = cards
+    .map((card) => {
+      const mistakes = card.mistakeKinds.length > 0
+        ? `<div class="cc-row"><span>Issues</span><span>${card.mistakeKinds.join(", ")}</span></div>`
+        : "";
+      const spotted = card.detectedMs === null
+        ? `<div class="cc-row"><span>Spotted</span><span class="cc-bad">never detected</span></div>`
+        : `<div class="cc-row"><span>Spotted</span><span>${seconds(card.detectedMs)}`
+        + `${card.detectSensor ? ` via ${card.detectSensor}` : ""}`
+        + `${card.firstSeenMs !== null ? ` (first seen ${seconds(card.firstSeenMs)})` : ""}</span></div>`;
+      return `<div class="aar-card contact-card">
+        <h4>${card.id} <span class="cc-dim">· ${card.truthLabel} · ${card.truthResponse}</span></h4>
+        ${spotted}
+        <div class="cc-row"><span>Classified</span><span>${card.classifiedAs ?? "—"} ${verdict(card.classificationOk)}</span></div>
+        <div class="cc-row"><span>Responded</span><span>${card.respondedAs ?? "—"} ${verdict(card.responseOk)}</span></div>
+        ${mistakes}
+      </div>`;
+    })
+    .join("");
+  return `<section class="aar-card-wide">
+    <h3>Contacts</h3>
+    <div class="contact-grid">${html}</div>
+  </section>`;
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 
@@ -403,6 +506,7 @@ export function buildAarHtml(
         </table>
       </section>
     </div>
+    ${contactCardsBlock(aar)}
     ${timelineBlock(aar)}
     ${groundTruthBlock(aar)}
     ${performanceBlock(profile)}

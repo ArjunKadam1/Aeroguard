@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import type { PublicThreat, SpeedClass } from "../api/types";
-import { createThreatView, updateThreatView } from "./threats";
+import { airframeForId, createThreatView, updateThreatView } from "./threats";
 
 function threat(id: string, speed: SpeedClass = "medium"): PublicThreat {
   return {
@@ -12,11 +12,25 @@ function threat(id: string, speed: SpeedClass = "medium"): PublicThreat {
 
 function colorOf(id: string): number {
   const view = createThreatView(threat(id));
-  // Core mesh carries the id-hash color; the shell is a fixed dark outline.
+  // Accent dot carries the id-hash color; the airframe stays dark.
   const core = view.mesh.getObjectByName(`threat-core-${id}`) as THREE.Mesh;
   const material = core.material as THREE.MeshBasicMaterial;
   return material.color.getHex();
 }
+
+describe("airframeForId", () => {
+  it("is deterministic per id", () => {
+    expect(airframeForId("T01")).toBe(airframeForId("T01"));
+  });
+
+  it("uses both airframes across contacts, independent of any label", () => {
+    // Only the id feeds the choice: the profile type carries no label at all.
+    const kinds = new Set(
+      ["T01", "T02", "T03", "T04", "T05", "T06"].map((id) => airframeForId(id)),
+    );
+    expect(kinds).toEqual(new Set(["quad", "wing"]));
+  });
+});
 
 describe("createThreatView", () => {
   it("derives color from the threat id only", () => {
@@ -30,20 +44,62 @@ describe("createThreatView", () => {
     expect(seen.size).toBeGreaterThan(1);
   });
 
-  it("uses a self-lit core that ignores fog, inside a dark outline shell", () => {
+  it("builds the airframe matching the id hash", () => {
+    const view = createThreatView(threat("T01"));
+    const kind = airframeForId("T01");
+    expect(view.mesh.userData.airframe).toBe(kind);
+    expect(view.mesh.getObjectByName(`threat-${kind}-T01`)).toBeTruthy();
+  });
+
+  it("fits red/green nav lights port/starboard of travel", () => {
+    const view = createThreatView(threat("T01"));
+    const colors = new Set<number>();
+    view.mesh.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh) {
+        const hex = (mesh.material as THREE.MeshBasicMaterial).color?.getHex();
+        if (hex === 0xff2d2d || hex === 0x2dff5e) colors.add(hex);
+      }
+    });
+    expect(colors).toEqual(new Set([0xff2d2d, 0x2dff5e]));
+  });
+
+  it("keeps every light fog-free so contacts read at any distance", () => {
+    const view = createThreatView(threat("T01"));
+    view.mesh.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh) {
+        expect((mesh.material as THREE.MeshBasicMaterial).fog).toBe(false);
+      }
+    });
+  });
+
+  it("uses a self-lit accent that ignores fog, on a dark airframe", () => {
     const view = createThreatView(threat("T01"));
     const core = view.mesh.getObjectByName("threat-core-T01") as THREE.Mesh;
     const coreMat = core.material as THREE.MeshBasicMaterial;
     // fog:false is what stops the threat washing out against the sky.
     expect(coreMat.fog).toBe(false);
 
-    const shell = view.mesh.children[0] as THREE.Mesh;
-    const shellMat = shell.material as THREE.MeshBasicMaterial;
-    expect(shellMat.fog).toBe(false);
-    // The shell must be much darker than the core to read as a rim.
-    const coreLum = coreMat.color.getHex();
-    const shellLum = shellMat.color.getHex();
-    expect(shellLum).toBeLessThan(coreLum);
+    const airframe = view.mesh.getObjectByName(`threat-${airframeForId("T01")}-T01`) as THREE.Group;
+    const body = airframe.children[0] as THREE.Mesh;
+    const bodyMat = body.material as THREE.MeshBasicMaterial;
+    expect(bodyMat.fog).toBe(false);
+    // The body must be much darker than the accent to read as a silhouette.
+    expect(bodyMat.color.getHex()).toBeLessThan(coreMat.color.getHex());
+  });
+
+  it("blinks the strobe roughly once a second, staggered per contact", () => {
+    const view = createThreatView(threat("T01"));
+    updateThreatView(view, 2);
+    const strobe = view.mesh.getObjectByName("threat-strobe-T01") as THREE.Mesh;
+    const states = new Set<boolean>();
+    for (let t = 1; t < 4; t += 0.05) {
+      updateThreatView(view, t);
+      states.add(strobe.visible);
+    }
+    // Mostly off with brief flashes -- never stuck on, never stuck off.
+    expect(states).toEqual(new Set([true, false]));
   });
 });
 

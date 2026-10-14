@@ -1,8 +1,9 @@
 // Abstract radar scope for the scouting drone. Bearing/range blips only --
-// no identity, no classification, no targeting geometry. Fresh detections
-// render bright; coasting (stale) tracks render dim so the trainee sees
-// exactly how much to trust each blip. Fed with unified tracks filtered to
-// radar-held contacts (lastSource radar or both).
+// no identity, no classification, no targeting geometry. Radar-held contacts
+// render solid (fresh bright, coasting dim); contacts held by the visual
+// sensor render as hollow rings so the trainee can see what the camera holds
+// and what only the radar does. Fed with all unified tracks; the styling
+// carries the source distinction, so nothing observable is hidden.
 
 import type { Track } from "../sim/observation";
 
@@ -38,10 +39,14 @@ export function buildRadarHtml(
   const sweepAngle = (tick % 8) * 45;
   const blips = tracks
     .map((track) => {
+      const visual = track.lastSource === "visual";
       const fresh = track.lastTick === tick;
       const { x, y } = toXY(track.bearingDeg, track.range, maxRange);
-      return `<g class="radar-blip${fresh ? " is-fresh" : " is-stale"}" data-track="${track.id}">`
-        + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${fresh ? 5 : 4}"/>`
+      const state = visual ? "is-visual" : fresh ? "is-fresh" : "is-stale";
+      const title = visual ? `${track.id} · visual hold` : `${track.id} · radar`;
+      return `<g class="radar-blip ${state}" data-track="${track.id}" tabindex="0" role="button" aria-label="Select contact ${title}">`
+        + `<title>${title}</title>`
+        + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${fresh && !visual ? 5 : 4}"/>`
         + `<text x="${(x + 8).toFixed(1)}" y="${(y + 4).toFixed(1)}">${track.id}</text></g>`;
     })
     .join("");
@@ -54,6 +59,8 @@ export function buildRadarHtml(
     + blips
     + empty
     + `</svg>
+    <div class="radar-legend"><span class="radar-lg-radar">● radar</span>`
+    + `<span class="radar-lg-visual">○ visual hold</span><span class="radar-lg-stale">● coasting</span></div>
     <div class="radar-foot"><span>RADAR · ${maxRange}u</span><span>click a blip to select</span></div>`;
 }
 
@@ -69,10 +76,18 @@ export function mountRadar(root: HTMLElement, onSelect: (id: string) => void): R
   root.appendChild(element);
 
   let lastKey = "";
-  element.addEventListener("click", (event) => {
+  function selectFromEvent(event: Event): void {
     const target = (event.target as HTMLElement).closest?.("[data-track]") as HTMLElement | null;
     const id = target?.dataset.track;
     if (id) onSelect(id);
+  }
+  element.addEventListener("click", selectFromEvent);
+  // Blips are keyboard-focusable buttons: Enter/Space selects like a click.
+  element.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectFromEvent(event);
+    }
   });
 
   return {

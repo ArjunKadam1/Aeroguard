@@ -4,6 +4,8 @@ import {
   assessmentBlock,
   barClass,
   buildAarHtml,
+  contactCards,
+  contactCardsBlock,
   errorBanner,
   formatMetric,
   formatSeconds,
@@ -185,8 +187,7 @@ describe("timeline", () => {
   });
 });
 
-describe("ground truth reveal", () => {
-  it("lists every contact's answers after the session", () => {
+describe("ground truth reveal", () => {  it("lists every contact's answers after the session", () => {
     const html = groundTruthBlock(aar);
     expect(html).toContain("Ground truth");
     expect(html).toContain("T01");
@@ -198,6 +199,47 @@ describe("ground truth reveal", () => {
 
   it("renders nothing when the server sent no reveal", () => {
     expect(groundTruthBlock({ ...aar, ground_truth: [] })).toBe("");
+  });
+});
+
+describe("contact cards", () => {
+  it("assembles one story per revealed contact", () => {
+    const cards = contactCards(aar);
+    expect(cards.map((c) => c.id)).toEqual(["T01", "T02"]);
+    const [handled, missed] = cards;
+    expect(handled).toMatchObject({
+      truthLabel: "hostile",
+      truthResponse: "hold",
+      spawnedMs: 4000,
+      detectedMs: 5200,
+      classifiedAs: "hostile",
+      classificationOk: true,
+      respondedAs: "hold",
+      responseOk: true,
+      mistakeKinds: [],
+    });
+    expect(missed).toMatchObject({
+      detectedMs: null,
+      classifiedAs: null,
+      classificationOk: null,
+      mistakeKinds: ["missed_threat"],
+    });
+  });
+
+  it("renders the story with timings and verdicts", () => {
+    const html = contactCardsBlock(aar);
+    expect(html).toContain("Contacts");
+    expect(html).toContain("T01");
+    expect(html).toContain("5.2s");
+    expect(html).toContain("hostile");
+    expect(html).toContain("✓");
+    expect(html).toContain("never detected");
+    expect(html).toContain("missed_threat");
+  });
+
+  it("renders nothing without a reveal", () => {
+    expect(contactCardsBlock({ ...aar, ground_truth: [] })).toBe("");
+    expect(contactCards({ ...aar, ground_truth: [] })).toEqual([]);
   });
 });
 

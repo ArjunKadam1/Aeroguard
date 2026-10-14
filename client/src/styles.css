@@ -35,7 +35,8 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 
 
 /* Cockpit HUD */
-#flight-hud { top: 12px; left: 50%; transform: translateX(-50%); cursor: pointer; padding: 10px 16px; }
+/* Flight instruments sit below the top-centre view switcher so they never overlap it. */
+#flight-hud { top: 64px; left: 50%; transform: translateX(-50%); cursor: pointer; padding: 10px 16px; }
 .cockpit { display: flex; align-items: center; gap: 18px; }
 .cockpit-mid { display: flex; align-items: center; gap: 14px; }
 .adi-wrap { position: relative; display: flex; }
@@ -58,12 +59,18 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 .fhud-help kbd { color: #e6edf3; font-family: ui-monospace, monospace; }
 
 /* After Action Review */
-#aar-panel { overflow-y: auto; }
-#aar-panel > div { max-width: 860px; width: 100%; }
+#aar-panel { overflow-y: auto; overflow-x: hidden; flex-direction: column; align-items: center;
+  justify-content: flex-start; }
+#aar-panel > * { max-width: 860px; width: 100%; }
 .aar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+/* Grid children default to min-width:auto, which lets long strings (mistake
+   details, timeline decisions, recommendations) force columns wider than the
+   panel. Zero it so content wraps instead of scrolling sideways. */
+.aar-grid > *, .contact-grid > * { min-width: 0; }
 .aar-card { background: rgba(13, 17, 23, 0.7); border: 1px solid #2a3b4d; border-radius: 8px; padding: 12px 14px; }
 .aar-card h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #58a6ff; }
-.aar-table { width: 100%; font-size: 13px; }
+.aar-table { width: 100%; font-size: 13px; table-layout: fixed; }
+.aar-table th, .aar-table td { overflow-wrap: anywhere; }
 .aar-table th { font-size: 10px; color: #8b98a5; text-transform: uppercase; letter-spacing: 0.08em; }
 .aar-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .aar-bar { display: block; width: 100%; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
@@ -92,6 +99,15 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 .aar-next-grid b { color: #7ee787; }
 .aar-reason { font-size: 13px; line-height: 1.5; margin: 8px 0 0; color: #e6edf3; }
 .aar-actions { margin-top: 16px; text-align: center; }
+/* Per-contact debrief cards */
+.contact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.contact-card h4 { margin: 0 0 8px; font-size: 14px; }
+.cc-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 12px; }
+.cc-row > span:last-child { min-width: 0; overflow-wrap: anywhere; text-align: right; }
+.cc-row > span:first-child { color: #8b98a5; }
+.cc-ok { color: #3fb950; }
+.cc-bad { color: #d1242f; }
+.cc-dim { color: #8b98a5; font-weight: 400; font-size: 12px; }
 /* Start / setup page */
 #start-panel { inset: 0; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(ellipse at 50% 40%, #101a24 0%, #070b10 70%);
@@ -198,7 +214,7 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 
 /* Radar scope (scout) and sensor status */
 #right-rail { position: absolute; right: 12px; top: 12px; width: 224px; display: flex; flex-direction: column; gap: 12px; }
-#right-rail .fhud-help, #right-rail #radar { position: static; width: 100%; max-width: none; }
+#right-rail .fhud-help, #right-rail #radar, #right-rail #sensor-plot, #right-rail #station-help { position: static; width: 100%; max-width: none; }
 #radar { right: 12px; top: 12px; width: 224px; }
 .radar-scope { width: 100%; height: auto; display: block; }
 .radar-ring { fill: none; stroke: #30363d; stroke-width: 1; }
@@ -209,8 +225,88 @@ td, th { border-bottom: 1px solid #2a3b4d; padding: 6px 10px; text-align: left; 
 .radar-blip text { fill: #e6edf3; font-size: 10px; }
 .radar-blip.is-stale circle { fill: #8b98a5; opacity: 0.55; }
 .radar-blip.is-stale text { fill: #8b98a5; }
+.radar-blip.is-visual circle { fill: none; stroke: #22d3ee; stroke-width: 1.5; stroke-dasharray: 3 2; }
+.radar-legend { display: flex; gap: 10px; font-size: 10px; color: #8b98a5; margin-top: 4px; }
 .radar-empty { fill: #8b98a5; font-size: 11px; text-anchor: middle; }
 .radar-foot { display: flex; justify-content: space-between; font-size: 10px; color: #8b98a5; margin-top: 4px; }
+
+/* View switcher: 2D Sensors (default) vs 3D World. Top centre in both roles. */
+#view-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; }
+.view-bar { display: flex; border: 1px solid #2a3b4d; border-radius: 6px; overflow: hidden;
+  background: rgba(10, 20, 30, 0.85); }
+.view-bar-btn { padding: 6px 14px; font-size: 11px; letter-spacing: 0.1em; background: transparent;
+  border: 0; color: #8b98a5; cursor: pointer; }
+.view-bar-btn.is-active { background: rgba(31, 111, 235, 0.2); color: #58a6ff; }
+
+/* Hidden views collapse fully so the session continues with no 3D draw. */
+#scene.is-hidden, #sensor-plot.is-hidden, #sensor-stage.is-hidden { display: none; }
+
+/* 2D Sensors centre stage: the plot/scope is the main display here, large
+   and centred. The stage itself never intercepts clicks meant for the HUD,
+   actions, or help panels around it. */
+#sensor-stage { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; pointer-events: none; }
+#sensor-stage > .panel { pointer-events: auto; }
+#sensor-stage #sensor-plot { position: static; width: min(430px, 55vw); max-width: none; }
+#sensor-stage #radar { position: static; width: min(360px, 45vw); max-width: none; }
+
+/* Split view: the 3D scene keeps the left, the sensor stage docks as a right
+   side panel. Same loop, same state -- only the layout changes. Help rails
+   hide in split (their hints live on in the plot/scope footers); the sensor
+   panels keep syncing on their tick cadence, so split costs nothing per
+   frame over the world view. */
+#app.view-split #scene { right: 400px; }
+#app.view-split #sensor-stage { inset: 0 0 0 auto; width: 400px; flex-direction: column;
+  justify-content: flex-start; align-items: stretch; padding: 60px 14px 14px;
+  pointer-events: auto; background: rgba(7, 11, 16, 0.92); border-left: 1px solid #2a3b4d; }
+#app.view-split #sensor-stage #sensor-plot,
+#app.view-split #sensor-stage #radar { width: 100%; }
+#app.view-split #right-rail { display: none; }
+
+/* HUD threat rows are clickable; show it. */
+.hud-threats .hud-threat { cursor: pointer; }
+.hud-threats .hud-threat { cursor: pointer; }
+
+/* Station visual-sector plot: same visual language as the radar scope. */
+#sensor-plot { right: 12px; top: 12px; width: 300px; }
+.plot-scope { width: 100%; height: auto; display: block; }
+.plot-ring { fill: none; stroke: #30363d; stroke-width: 1; }
+.plot-ring-label { fill: #8b98a5; font-size: 8px; }
+.plot-axis { stroke: #21262d; stroke-width: 1; }
+.plot-north { fill: #8b98a5; font-size: 9px; text-anchor: middle; }
+.plot-wedge { fill: rgba(34, 211, 238, 0.07); stroke: #22d3ee; stroke-width: 1;
+  stroke-dasharray: 4 3; opacity: 0.85; }
+.plot-mast { fill: #58a6ff; }
+.plot-blip { cursor: pointer; }
+.plot-blip circle { fill: #22d3ee; }
+.plot-blip text { fill: #e6edf3; font-size: 10px; }
+.plot-blip.plot-tentative circle { fill: none; stroke: #22d3ee; stroke-width: 1.5; stroke-dasharray: 3 2; }
+.plot-blip.plot-coasting circle { fill: #8b98a5; opacity: 0.55; }
+.plot-blip.plot-coasting text { fill: #8b98a5; }
+.plot-blip.is-selected circle { stroke: #ffffff; stroke-width: 1.5; }
+.plot-empty { fill: #8b98a5; font-size: 11px; text-anchor: middle; }
+.plot-empty-hint { fill: #6e7681; font-size: 10px; text-anchor: middle; }
+.plot-legend { display: flex; gap: 10px; font-size: 10px; color: #8b98a5; margin-top: 4px; }
+.plot-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: #8b98a5; margin-top: 4px; }
+
+/* Keyboard focus must be visible on blips (SVG g elements draw no focus ring). */
+.plot-blip:focus-visible, .radar-blip:focus-visible { outline: 2px solid #58a6ff; outline-offset: 2px; }
+
+/* Narrow screens: panels shrink instead of overlapping; the split dock drops
+   to a bottom sheet so both views stay usable. */
+@media (max-width: 920px) {
+  #hud { min-width: 0; max-width: 46vw; font-size: 12px; }
+  .hud-threats { max-height: 30vh; overflow-y: auto; }
+  #right-rail { width: 200px; }
+  .view-bar-btn { padding: 6px 10px; font-size: 10px; }
+  #actions { font-size: 12px; }
+  #app.view-split #scene { right: 0; bottom: 38%; }
+  #app.view-split #sensor-stage { inset: auto 0 0 0; width: auto; height: 38%;
+    border-left: 0; border-top: 1px solid #2a3b4d; padding: 10px; align-items: center; }
+  #app.view-split #actions { bottom: calc(38% + 12px); }
+  #app.view-split #sensor-stage #sensor-plot { width: min(100%, 300px); margin: 0 auto; }
+  #app.view-split #sensor-stage #radar { width: min(100%, 280px); margin: 0 auto; }
+}
 .hud-sensors { margin-top: 8px; border-top: 1px solid #30363d; padding-top: 6px; font-size: 10px; color: #8b98a5; }
 .hud-sensors div { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
 .sensor-reasons { margin-top: 4px; color: #d29922; }

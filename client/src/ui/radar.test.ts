@@ -51,6 +51,32 @@ describe("buildRadarHtml", () => {
     expect(html).not.toContain("hostile");
     expect(html).not.toContain("behavior");
   });
+
+  it("renders visual-held contacts as hollow rings, not radar blips", () => {
+    const html = buildRadarHtml([track({ id: "T01", lastSource: "visual", seenVisual: true })], 400, 0);
+    expect(html).toContain("is-visual");
+    expect(html).not.toContain("is-fresh");
+    expect(html).toContain("visual hold");
+  });
+
+  it("shows both sources side by side with a source legend", () => {
+    const html = buildRadarHtml([
+      track({ id: "T01", lastSource: "radar" }),
+      track({ id: "T02", lastSource: "visual", seenVisual: true }),
+    ], 400, 0);
+    expect(html).toContain('data-track="T01"');
+    expect(html).toContain('data-track="T02"');
+    expect(html).toContain("is-fresh");
+    expect(html).toContain("is-visual");
+    expect(html).toContain("visual hold");
+  });
+
+  it("exposes blips as keyboard-operable buttons with spoken labels", () => {
+    const html = buildRadarHtml([track({ id: "T01" })], 400, 0);
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain('role="button"');
+    expect(html).toContain('aria-label="Select contact T01 · radar"');
+  });
 });
 
 describe("buildSensorStatusHtml", () => {

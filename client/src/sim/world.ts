@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { PublicScenario } from "../api/types";
+import { drawGroundTexture } from "./ground";
+import { STREET_BLOCK, STREET_HALF_WIDTH, STREET_OFFSET } from "./ground";
 import { TERRAIN_SIZE, Terrain } from "./terrain";
 
 // Water sits just below the terrain edge, which is forced to y=0.
@@ -60,20 +62,171 @@ export function patchFacadeUvShader(
     );
 }
 
-// Facade window grid drawn on a 2D canvas. Returns an albedo texture plus a
-// matching emissive mask so lit windows glow after dark. Generated at runtime
-// rather than shipped as a file, so there is no asset to license or download.
-//
-// One texture is shared by every building and the UV is scaled per instance by
-// patchFacadeUvShader, so a single grid reads correctly on facades of very
-// different heights.
-const WINDOW_COLS = 8;
-const WINDOW_ROWS = 10;
+// Downtown core near the origin, sprawl outward: real cities cluster height
+// instead of rolling it uniformly. Pure so district skylines stay testable.
+export function districtHeight(rng: () => number, x: number, z: number): number {
+  const core = Math.max(0, 1 - Math.hypot(x, z) / 700);
+  return 10 + rng() * 20 + core * (30 + rng() * 45);
+}
 
-function drawFacade(seedValue: number, night: boolean): {
-  map: THREE.Texture;
-  emissiveMap: THREE.Texture;
-} {
+// Per-instance facade tint: neutral grey tone plus a subtle warm/cool spread
+// so the skyline is not uniform. Stays at or below 1.0 so the sun cannot push
+// the brightest facades past the tone-mapper's shoulder.
+export function facadeTint(rng: () => number): [number, number, number] {
+  const tone = 0.7 + rng() * 0.24;
+  const warm = (rng() - 0.5) * 0.08;
+  const clamp = (v: number) => Math.max(0.6, Math.min(1, v));
+  return [clamp(tone + warm), clamp(tone), clamp(tone * 1.03 - warm)];
+}
+
+// Axis-aligned half-extents of a rotated w×d footprint. Pure so the
+// no-overlap rule stays testable without a renderer.
+export function footprintHalfExtents(w: number, d: number, rot: number): [number, number] {
+  const cos = Math.abs(Math.cos(rot));
+  const sin = Math.abs(Math.sin(rot));
+  return [(w * cos + d * sin) / 2, (w * sin + d * cos) / 2];
+}
+
+export interface Footprint {
+  x: number;
+  z: number;
+  hx: number;
+  hz: number;
+}
+
+/** True when two footprints (plus padding) intersect. */
+export function footprintsOverlap(a: Footprint, b: Footprint, padding = 6): boolean {
+  return Math.abs(a.x - b.x) < a.hx + b.hx + padding
+    && Math.abs(a.z - b.z) < a.hz + b.hz + padding;
+}
+
+// Streetlight plan positions on the road edges (not the centre lines):
+// ±8.5u perpendicular to the street puts the pole on the sidewalk ring,
+// alternating sides per segment. armX/armZ is the unit direction the lamp arm
+// reaches, back over the road. Deterministic with no RNG: the grid is the plan.
+// Heights are resolved against the terrain at build time.
+export interface StreetlightSpot {
+  x: number;
+  z: number;
+  armX: number;
+  armZ: number;
+}
+
+export function streetlightPositions(): StreetlightSpot[] {
+  const points: StreetlightSpot[] = [];
+  const edge = STREET_HALF_WIDTH + 1.5;
+  for (let k = -7; k <= 6; k += 1) {
+    const line = STREET_OFFSET + k * STREET_BLOCK;
+    for (let t = -630; t <= 630; t += 90) {
+      // Alternating sides so lamps don't march down one kerb in a row.
+      const side = Math.round(t / 90) % 2 === 0 ? 1 : -1;
+      if (Math.hypot(line, t) >= 150) {
+        points.push({ x: line + side * edge, z: t, armX: -side, armZ: 0 });
+      }
+      if (Math.hypot(t, line) >= 150) {
+        points.push({ x: t, z: line + side * edge, armX: 0, armZ: -side });
+      }
+    }
+  }
+  return points;
+}
+
+// Soft radial glow sprite for lamp halos. Generated at runtime like the
+// facades, so there is no asset to license. Falls back to a plain dot if the
+// 2D context is unavailable.
+export function makeGlowSprite(size = 64): THREE.Texture {
+  const fallback = new THREE.DataTexture(
+    new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat,
+  );
+  fallback.needsUpdate = true;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) return fallback;
+  const gradient = context.createRadialGradient(
+    size / 2, size / 2, 0, size / 2, size / 2, size / 2,
+  );
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.25, "rgba(255,255,255,0.55)");
+  gradient.addColorStop(0.6, "rgba(255,255,255,0.16)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// Facade archetypes, painted on 2D canvases at runtime so there is no asset
+// to license or download. One shared texture per archetype; the UV shader
+// patch scales the grid per instance so rows stay square on any height.
+export type FacadeArchetype = "glass" | "brick" | "concrete";
+
+export interface FacadePalette {
+  /** Day/night albedo base. */
+  base: string;
+  baseNight: string;
+  /** Window grid density. */
+  cols: number;
+  rows: number;
+  /** Window inset fraction (0 = wall-to-wall glass, 0.3 = punched openings). */
+  pad: number;
+  /** Unlit window glass. */
+  glass: string;
+  /** Lit window albedo, day and night. */
+  litDay: string;
+  litNight: string;
+  /** Share of windows lit, day and night. */
+  litDayFraction: number;
+  litNightFraction: number;
+  /** Horizontal floor-slab band color, or null for flat curtain walls. */
+  spandrel: string | null;
+}
+
+// Cool city palette: blue-grey glass downtown, muted brick mid-rise, pale
+// concrete sprawl. Assignment follows the district logic (core -> glass,
+// ring -> mixed, edge -> concrete) so zoning reads in the skyline.
+export const FACADE_PALETTES: Record<FacadeArchetype, FacadePalette> = {
+  glass: {
+    base: "#3d4a55", baseNight: "#12161c",
+    cols: 12, rows: 14, pad: 0.18,
+    glass: "#1d262e",
+    litDay: "#b8cdd8", litNight: "#4a4239",
+    litDayFraction: 0.12, litNightFraction: 0.08,
+    spandrel: "#242d34",
+  },
+  brick: {
+    base: "#6e6259", baseNight: "#241f1b",
+    cols: 6, rows: 8, pad: 0.3,
+    glass: "#23282c",
+    litDay: "#c9d6e2", litNight: "#4a4239",
+    litDayFraction: 0.08, litNightFraction: 0.1,
+    spandrel: null,
+  },
+  concrete: {
+    base: "#8b9094", baseNight: "#232629",
+    cols: 8, rows: 10, pad: 0.24,
+    glass: "#2b3138",
+    litDay: "#c9d6e2", litNight: "#4a4239",
+    litDayFraction: 0.1, litNightFraction: 0.1,
+    spandrel: "#6f747c",
+  },
+};
+
+/** Archetype for a building plot: glass core, mixed ring, concrete edge. Pure. */
+export function facadeArchetype(x: number, z: number, mix: number): FacadeArchetype {
+  const distance = Math.hypot(x, z);
+  if (distance < 260) return "glass";
+  if (distance > 620) return "concrete";
+  return mix < 0.45 ? "brick" : "concrete";
+}
+
+function paintFacade(
+  seedValue: number,
+  night: boolean,
+  palette: FacadePalette,
+): { map: THREE.Texture; emissiveMap: THREE.Texture } {
   const size = 256;
   const rng = makeRng(seedValue);
 
@@ -92,10 +245,7 @@ function drawFacade(seedValue: number, night: boolean): {
     fallback.needsUpdate = true;
     return { map: fallback, emissiveMap: fallback };
   }
-  // Concrete base with subtle vertical banding.
-  // Concrete base. Kept mid-dark: a light grey multiplied by the per-instance
-  // tone and lit by a 2.6 sun with ACES tone mapping clipped to white.
-  a.fillStyle = night ? "#1b1f25" : "#6f747c";
+  a.fillStyle = night ? palette.baseNight : palette.base;
   a.fillRect(0, 0, size, size);
   for (let i = 0; i < 24; i += 1) {
     a.fillStyle = `rgba(0,0,0,${0.02 + rng() * 0.05})`;
@@ -106,12 +256,20 @@ function drawFacade(seedValue: number, night: boolean): {
   e.fillStyle = "#000000";
   e.fillRect(0, 0, size, size);
 
-  const cellW = size / WINDOW_COLS;
-  const cellH = size / WINDOW_ROWS;
-  const pad = cellW * 0.24;
+  const cellW = size / palette.cols;
+  const cellH = size / palette.rows;
+  const pad = cellW * palette.pad;
+  const litFraction = night ? palette.litNightFraction : palette.litDayFraction;
 
-  for (let row = 0; row < WINDOW_ROWS; row += 1) {
-    for (let col = 0; col < WINDOW_COLS; col += 1) {
+  for (let row = 0; row < palette.rows; row += 1) {
+    // Mood: whole dark floors so lit rooms cluster instead of peppering evenly.
+    const floorDark = rng() < 0.25;
+    // Floor-slab shadow line above each row, where the archetype has one.
+    if (palette.spandrel) {
+      a.fillStyle = palette.spandrel;
+      a.fillRect(0, row * cellH, size, Math.max(1, cellH * 0.08));
+    }
+    for (let col = 0; col < palette.cols; col += 1) {
       const x = col * cellW + pad;
       const y = row * cellH + pad;
       const w = cellW - pad * 2;
@@ -119,12 +277,12 @@ function drawFacade(seedValue: number, night: boolean): {
 
       // A real skyline is mostly dark with scattered lit rooms, so keep the
       // lit fraction low; the previous 42% read as a uniformly amber slab.
-      const lit = rng() < (night ? 0.17 : 0.10);
+      const lit = !floorDark && rng() < litFraction;
       // Albedo stays neutral: an unlit window is dark glass and a lit one is
       // only slightly brighter. The glow comes from the emissive map alone --
       // painting the albedo amber as well double-counted it and turned the
       // whole facade orange.
-      a.fillStyle = lit ? (night ? "#5d5347" : "#c9d6e2") : "#2b3138";
+      a.fillStyle = lit ? (night ? palette.litNight : palette.litDay) : palette.glass;
       a.fillRect(x, y, w, h);
 
       // Recess outline so the grid reads as depth, not a decal.
@@ -133,13 +291,14 @@ function drawFacade(seedValue: number, night: boolean): {
       a.strokeRect(x, y, w, h);
 
       if (lit) {
-        // Slight per-window variation keeps the emissive from looking uniform.
-        const glow = 0.5 + rng() * 0.5;
-        const warmth = 0.75 + rng() * 0.25;
-        e.fillStyle = `rgb(${Math.round(255)},${Math.round(200 * warmth)},${Math.round(150 * warmth)})`;
-        e.globalAlpha = glow;
+        // Cool dim interior light: near-white with faint warm variance. The
+        // old hot orange (255, ~150, ~110) mip-averaged at distance until whole
+        // facades glowed like lava under ACES tone mapping.
+        const glow = 0.35 + rng() * 0.45;
+        const warmth = 0.85 + rng() * 0.15;
+        e.fillStyle = `rgb(${Math.round(255 * glow)},`
+          + `${Math.round(228 * warmth * glow)},${Math.round(198 * warmth * glow)})`;
         e.fillRect(x, y, w, h);
-        e.globalAlpha = 1;
       }
     }
   }
@@ -200,7 +359,9 @@ export function buildWorld(
   disposables.push(sky.material);
 
   // ---- Lighting --------------------------------------------------------
-  const sun = new THREE.DirectionalLight(night ? 0x9db4ff : 0xfff3d6, night ? 0.35 : 2.6);
+  // Midday sun sits below the clip point: with ACES exposure 0.9, 2.6 pushed
+  // bright facades to flat white. Compare against screenshots before raising.
+  const sun = new THREE.DirectionalLight(night ? 0x9db4ff : 0xfff3d6, night ? 0.35 : 2.3);
   sun.position.setFromSphericalCoords(300, phi, Math.PI * 0.25);
 
   // Shadows: enable for real. Without castShadow the shadow map flag costs
@@ -257,9 +418,13 @@ export function buildWorld(
   }
   geometry.computeVertexNormals();
 
-  const groundColor = scenario.environment === "urban" ? 0x4a5348 : 0x5c6b42;
+  const groundTexture = drawGroundTexture(scenario.seed ^ 0x691d, scenario.environment);
+  disposables.push(groundTexture);
   const material = new THREE.MeshStandardMaterial({
-    color: groundColor,
+    // The baked albedo carries the true colors (streets, blocks, grass), so
+    // the base stays white; the vertex tint below still shades relief.
+    color: 0xffffff,
+    map: groundTexture,
     roughness: 1,
     metalness: 0,
     // Slight vertex tint so hills read as relief rather than a flat silhouette.
@@ -302,85 +467,140 @@ export function buildWorld(
   // ---- Environment dressing -------------------------------------------
   const rng = makeRng(scenario.seed ^ 0x5eed);
   if (scenario.environment === "urban") {
-    // Buildings on a jittered grid, kept off the launch pad. Facades use a
-    // generated window grid so they are not plain untextured boxes.
-    //
-    // The box is built 1x1x1 and instanced with a per-building scale, so every
-    // face would otherwise carry exactly one window stretched over it. To keep
-    // window rows roughly square regardless of building height, the shader is
-    // patched to derive UV repeats from the instance scale.
-    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    const { map, emissiveMap } = drawFacade(scenario.seed ^ 0xfaca, night);
-    disposables.push(map, emissiveMap);
-    const bMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      map,
-      emissiveMap,
-      // Lit windows are what makes the night skyline read as a city. The value is
-      // deliberately low: at 1.5 every lit window clipped to flat amber and the
-      // facades read as uniformly orange slabs rather than scattered lights.
-      emissive: 0xffffff,
-      emissiveIntensity: night ? 0.75 : 0,
-      roughness: 0.9,
-    });
-// Each instance is scaled to its own width/height, so a fixed 0..1 UV would
-    // stretch a single window across the whole facade. Scaling the UV by the
-    // instance's dimensions keeps window rows square and correctly counted on
-    // buildings of very different sizes.
-    bMat.onBeforeCompile = (shader) => patchFacadeUvShader(shader, WINDOW_UV_PER_UNIT);
+    // Buildings on a jittered grid, kept off the launch pad. One baked facade
+    // texture per archetype (glass/brick/concrete); the UV shader patch scales
+    // each grid per instance so rows stay square on any height.
+    const baked: Record<FacadeArchetype, { map: THREE.Texture; emissiveMap: THREE.Texture }> = {
+      glass: paintFacade(scenario.seed ^ 0x61a55, night, FACADE_PALETTES.glass),
+      brick: paintFacade(scenario.seed ^ 0xb21c, night, FACADE_PALETTES.brick),
+      concrete: paintFacade(scenario.seed ^ 0xc0cc, night, FACADE_PALETTES.concrete),
+    };
+    const materials: Record<FacadeArchetype, THREE.MeshStandardMaterial> = {
+      // Glass towers catch the sky: metalness plus environment intensity so
+      // faces read reflective rather than flat grey.
+      glass: new THREE.MeshStandardMaterial({
+        color: 0xffffff, map: baked.glass.map, emissiveMap: baked.glass.emissiveMap,
+        emissive: 0xffffff, emissiveIntensity: night ? 0.45 : 0,
+        roughness: 0.35, metalness: 0.55, envMapIntensity: 1.2,
+      }),
+      brick: new THREE.MeshStandardMaterial({
+        color: 0xffffff, map: baked.brick.map, emissiveMap: baked.brick.emissiveMap,
+        emissive: 0xffffff, emissiveIntensity: night ? 0.45 : 0,
+        roughness: 0.95, metalness: 0,
+      }),
+      concrete: new THREE.MeshStandardMaterial({
+        color: 0xffffff, map: baked.concrete.map, emissiveMap: baked.concrete.emissiveMap,
+        emissive: 0xffffff, emissiveIntensity: night ? 0.45 : 0,
+        roughness: 0.9, metalness: 0,
+      }),
+    };
+    for (const arch of ["glass", "brick", "concrete"] as const) {
+      materials[arch].onBeforeCompile = (shader) => patchFacadeUvShader(shader, WINDOW_UV_PER_UNIT);
+      disposables.push(baked[arch].map, baked[arch].emissiveMap, materials[arch]);
+    }
 
     const count = 220;
-    const buildings = new THREE.InstancedMesh(boxGeo, bMat, count);
-    buildings.castShadow = true;
-    buildings.receiveShadow = true;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const p = new THREE.Vector3();
     const euler = new THREE.Euler();
+    // Per-archetype transform batches: one InstancedMesh per material, each
+    // with its own geometry (the instanceScale attribute is per-geometry).
+    interface BatchedBuilding {
+      x: number; groundY: number; z: number;
+      w: number; h: number; d: number; rot: number;
+      tint: [number, number, number];
+    }
+    const batches: Record<FacadeArchetype, BatchedBuilding[]> = {
+      glass: [], brick: [], concrete: [],
+    };
     // Per-instance dimensions feed the shader patch that scales facade UVs.
-    const instanceScale = new Float32Array(count * 3);
     // Placed buildings, recorded so rooftop units can sit exactly on them
     // instead of being scattered at unrelated random positions.
     const placed: Array<{ x: number; y: number; z: number; w: number; h: number; d: number; rot: number }> = [];
+    // Claimed cells and accepted footprints: two buildings must never share a
+    // cell or intersect, which the old pure-random cells plus ±20 jitter
+    // allowed. Bounded re-rolls keep the layout deterministic per seed.
+    const occupiedCells = new Set<string>();
+    const footprints: Footprint[] = [];
     for (let i = 0; i < count; i += 1) {
-      const gx = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
-      const gz = Math.round(rng() * 14 - 7) * 90 + (rng() - 0.5) * 40;
-      if (Math.hypot(gx, gz) < 150) { scale.set(0, 0, 0); }
-      else {
-        const h = 12 + rng() * 55;
-        const w = 16 + rng() * 20;
-        const d = 16 + rng() * 20;
-        scale.set(w, h, d);
-        // Jitter the plan rotation; previously every building was perfectly
-        // axis-aligned, which reads as a placeholder grid.
-        const rot = rng() * Math.PI;
-        euler.set(0, rot, 0);
-        q.setFromEuler(euler);
-        // Vary the facade tone per instance so the skyline is not uniform grey.
-        // Multiplied with the window map. Stays at or below 1.0 so the sun
-        // cannot push the brightest facades past the tone-mapper's shoulder.
-        const tone = 0.72 + rng() * 0.26;
-        buildings.setColorAt(i, new THREE.Color(tone, tone, tone * 1.03));
-        placed.push({
-          x: gx,
-          y: terrain.heightAt(gx, gz) + h / 2,
-          z: gz,
-          w, h, d, rot,
-        });
+      let cx = 0;
+      let cz = 0;
+      let claimed = false;
+      for (let attempt = 0; attempt < 8 && !claimed; attempt += 1) {
+        cx = Math.round(rng() * 14 - 7);
+        cz = Math.round(rng() * 14 - 7);
+        const key = `${cx},${cz}`;
+        if (!occupiedCells.has(key)) {
+          occupiedCells.add(key);
+          claimed = true;
+        }
       }
-      instanceScale[i * 3] = scale.x;
-      instanceScale[i * 3 + 1] = scale.y;
-      instanceScale[i * 3 + 2] = scale.z;
-      p.set(gx, terrain.heightAt(gx, gz) + scale.y / 2, gz);
-      m.compose(p, q, scale);
-      buildings.setMatrixAt(i, m);
+      // Tight jitter: with capped 32u footprints the worst rotated corner
+      // reaches ~22.6 + 14 = 36.6u from the cell centre, still inside the
+      // 38u street kerb.
+      const gx = cx * 90 + (rng() - 0.5) * 28;
+      const gz = cz * 90 + (rng() - 0.5) * 28;
+      if (claimed && Math.hypot(gx, gz) >= 150) {
+        const h = districtHeight(rng, gx, gz);
+        const w = 16 + rng() * 16;
+        const d = 16 + rng() * 16;
+        const rot = rng() * Math.PI;
+        const [hx, hz] = footprintHalfExtents(w, d, rot);
+        const candidate: Footprint = { x: gx, z: gz, hx, hz };
+        if (footprints.some((other) => footprintsOverlap(candidate, other))) {
+          // Overlaps a neighbour (possible across cell borders with rotation);
+          // skip rather than interpenetrate.
+        } else {
+          footprints.push(candidate);
+          // Vary the facade tone per instance so the skyline is not uniform grey.
+          // Multiplied with the window map. Stays at or below 1.0 so the sun
+          // cannot push the brightest facades past the tone-mapper's shoulder.
+          const [tr, tg, tb] = facadeTint(rng);
+          const arch = facadeArchetype(gx, gz, rng());
+          batches[arch].push({
+            x: gx, groundY: terrain.heightAt(gx, gz), z: gz,
+            w, h, d, rot, tint: [tr, tg, tb],
+          });
+          placed.push({
+            x: gx,
+            y: terrain.heightAt(gx, gz) + h / 2,
+            z: gz,
+            w, h, d, rot,
+          });
+        }
+      }
     }
-    buildings.instanceMatrix.needsUpdate = true;
-    if (buildings.instanceColor) buildings.instanceColor.needsUpdate = true;
-    boxGeo.setAttribute("instanceScale", new THREE.InstancedBufferAttribute(instanceScale, 3));
-    scene.add(buildings);
-    disposables.push(boxGeo, bMat);
+    // One instanced mesh per archetype: each material needs its own geometry
+    // because the instanceScale UV attribute is per-geometry.
+    for (const arch of ["glass", "brick", "concrete"] as const) {
+      const list = batches[arch];
+      if (list.length === 0) continue;
+      const geo = new THREE.BoxGeometry(1, 1, 1);
+      const mesh = new THREE.InstancedMesh(geo, materials[arch], list.length);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      const scales = new Float32Array(list.length * 3);
+      for (let j = 0; j < list.length; j += 1) {
+        const b = list[j];
+        euler.set(0, b.rot, 0);
+        q.setFromEuler(euler);
+        p.set(b.x, b.groundY + b.h / 2, b.z);
+        scale.set(b.w, b.h, b.d);
+        m.compose(p, q, scale);
+        mesh.setMatrixAt(j, m);
+        mesh.setColorAt(j, new THREE.Color(b.tint[0], b.tint[1], b.tint[2]));
+        scales[j * 3] = b.w;
+        scales[j * 3 + 1] = b.h;
+        scales[j * 3 + 2] = b.d;
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      geo.setAttribute("instanceScale", new THREE.InstancedBufferAttribute(scales, 3));
+      scene.add(mesh);
+      disposables.push(geo);
+    }
 
     // Rooftop plant (AC units, stair housings) breaks the flat-top silhouette
     // that otherwise makes every tower read as the same extruded box. These
@@ -429,6 +649,71 @@ export function buildWorld(
     roofs.instanceMatrix.needsUpdate = true;
     scene.add(roofs);
     disposables.push(roofGeo, roofMat);
+
+    // Streetlights on the road edges, night only. Tapered poles with an arm
+    // reaching over the road, a lamp head, and one additive glow layer so the
+    // lamps pool light instead of floating as bare dots. Four draw calls
+    // total, no shadow flags, no real lights.
+    if (night) {
+      const spots = streetlightPositions();
+      const poleGeo = new THREE.CylinderGeometry(0.22, 0.38, 7, 6);
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.9 });
+      const poles = new THREE.InstancedMesh(poleGeo, poleMat, spots.length);
+      const armGeo = new THREE.BoxGeometry(3.4, 0.22, 0.22);
+      const armMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.9 });
+      const arms = new THREE.InstancedMesh(armGeo, armMat, spots.length);
+      const headGeo = new THREE.BoxGeometry(1.5, 0.35, 0.7);
+      const headMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0 });
+      const heads = new THREE.InstancedMesh(headGeo, headMat, spots.length);
+      const lm = new THREE.Matrix4();
+      const lp = new THREE.Vector3();
+      const lq = new THREE.Quaternion();
+      const armQ = new THREE.Quaternion();
+      const armEuler = new THREE.Euler();
+      const ls = new THREE.Vector3(1, 1, 1);
+      const glowPositions = new Float32Array(spots.length * 3);
+      for (let i = 0; i < spots.length; i += 1) {
+        const spot = spots[i];
+        const groundY = terrain.heightAt(spot.x, spot.z);
+        lp.set(spot.x, groundY + 3.5, spot.z);
+        lm.compose(lp, lq, ls);
+        poles.setMatrixAt(i, lm);
+        // Arm runs from the pole top toward the road; the head hangs at its end.
+        armEuler.set(0, spot.armX !== 0 ? 0 : Math.PI / 2, 0);
+        armQ.setFromEuler(armEuler);
+        lp.set(spot.x + spot.armX * 1.7, groundY + 6.9, spot.z + spot.armZ * 1.7);
+        lm.compose(lp, armQ, ls);
+        arms.setMatrixAt(i, lm);
+        lp.set(spot.x + spot.armX * 3.2, groundY + 6.8, spot.z + spot.armZ * 3.2);
+        lm.compose(lp, armQ, ls);
+        heads.setMatrixAt(i, lm);
+        glowPositions[i * 3] = spot.x + spot.armX * 3.2;
+        glowPositions[i * 3 + 1] = groundY + 6.8;
+        glowPositions[i * 3 + 2] = spot.z + spot.armZ * 3.2;
+      }
+      poles.instanceMatrix.needsUpdate = true;
+      arms.instanceMatrix.needsUpdate = true;
+      heads.instanceMatrix.needsUpdate = true;
+      scene.add(poles);
+      scene.add(arms);
+      scene.add(heads);
+      const glowGeo = new THREE.BufferGeometry();
+      glowGeo.setAttribute("position", new THREE.BufferAttribute(glowPositions, 3));
+      const glowMat = new THREE.PointsMaterial({
+        map: makeGlowSprite(),
+        size: 16,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        color: 0xffb45e,
+      });
+      const glow = new THREE.Points(glowGeo, glowMat);
+      glow.frustumCulled = false;
+      scene.add(glow);
+      disposables.push(poleGeo, poleMat, armGeo, armMat, headGeo, headMat, glowGeo, glowMat);
+    }
   } else {
     // Trees: a tapered trunk plus stacked canopy cones merged into one
     // geometry. The previous single ConeGeometry(radius, height, 6) had six

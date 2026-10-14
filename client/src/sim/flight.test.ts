@@ -228,6 +228,41 @@ describe("attitude vectors", () => {
   });
 });
 
+describe("scout sensor look direction", () => {
+  it("derives from flight attitude alone, with no camera input", () => {
+    // The V0 contract: scout sensing reads forwardVector(attitude), so the
+    // same attitude always yields the same look direction no matter how any
+    // display camera is oriented. forwardVector takes only an attitude.
+    expect(forwardVector.length).toBe(1);
+    const a = { x: 0.2, y: 1.1, z: -0.3 };
+    const first = forwardVector(a);
+    const second = forwardVector({ x: 0.2, y: 1.1, z: -0.3 });
+    expect(second.x).toBeCloseTo(first.x, 9);
+    expect(second.y).toBeCloseTo(first.y, 9);
+    expect(second.z).toBeCloseTo(first.z, 9);
+  });
+
+  it("stays a stable unit vector through aggressive flight", () => {
+    const s = createFlightState(0, 300, 0);
+    run(s, input({ pitch: 1, roll: 1, yaw: 1, throttle: 0.7 }), 4);
+    const f = forwardVector(s.attitude);
+    expect(Math.sqrt(f.x * f.x + f.y * f.y + f.z * f.z)).toBeCloseTo(1, 6);
+    // Nose-down pitch held against self-levelling must tilt the look down.
+    expect(s.attitude.x).toBeGreaterThan(0.1);
+    expect(f.y).toBeLessThan(0);
+  });
+
+  it("swings with yaw so the sensor follows the heading", () => {
+    const s = createFlightState(0, 300, 0);
+    run(s, input({ yaw: 1, throttle: 0.53 }), 2);
+    expect(Math.abs(s.attitude.y)).toBeGreaterThan(0.2);
+    const f = forwardVector(s.attitude);
+    // Turning right (+yaw) swings forward from -Z toward -X.
+    expect(f.x).toBeLessThan(-0.1);
+    expect(f.z).toBeLessThan(0);
+  });
+});
+
 describe("constants", () => {
   it("keeps damping positive so rotation decays", () => {
     expect(ANGULAR_DAMPING).toBeGreaterThan(0);

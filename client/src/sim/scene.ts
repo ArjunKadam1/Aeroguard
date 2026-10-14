@@ -8,6 +8,8 @@ export interface SimScene {
   renderer: THREE.WebGLRenderer;
   world: World;
   render(): void;
+  /** Refit the canvas to its container (view switches change the width). */
+  resize(): void;
   dispose(): void;
 }
 
@@ -54,6 +56,7 @@ export function createSimScene(container: HTMLElement, scenario: PublicScenario)
     render() {
       renderer.render(scene, camera);
     },
+    resize,
     dispose() {
       window.removeEventListener("resize", resize);
       world.dispose();

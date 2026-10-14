@@ -98,11 +98,24 @@ export function buildHudHtml(
     ${sensors}`;
 }
 
-export function mountHud(root: HTMLElement, scenario: PublicScenario, observer: "station" | "scout"): Hud {
+export function mountHud(
+  root: HTMLElement,
+  scenario: PublicScenario,
+  observer: "station" | "scout",
+  onSelect: (id: string) => void = () => {},
+): Hud {
   const element = document.createElement("div");
   element.id = "hud";
   element.className = "panel";
   root.appendChild(element);
+
+  // Rows are the 2D selection path alongside the plot/scope blips: clicking
+  // one selects the contact exactly like clicking its blip.
+  element.addEventListener("click", (event) => {
+    const target = (event.target as HTMLElement).closest?.("[data-threat]") as HTMLElement | null;
+    const id = target?.dataset.threat;
+    if (id) onSelect(id);
+  });
 
   let selected: string | null = null;
   let remaining = scenario.duration_seconds;
