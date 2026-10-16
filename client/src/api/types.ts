@@ -4,6 +4,16 @@ export type Visibility = "clear" | "reduced" | "poor";
 export type ClassificationLabel = "friendly" | "civilian" | "unknown" | "suspicious" | "hostile";
 export type ExpectedResponse = "monitor" | "track" | "report" | "hold";
 export type SpeedClass = "slow" | "medium" | "fast";
+
+/** Assigned trajectory, independent of the hidden classification (T0 contract). */
+export type FlightPattern =
+  | "straight-transit"
+  | "wide-weave"
+  | "erratic-jink"
+  | "orbit-hold"
+  | "direct-approach"
+  | "altitude-step"
+  | "perimeter-sweep";
 export type ThreatCount = 1 | 2 | 3 | 5;
 
 export interface ScenarioGenerateRequest {
@@ -44,6 +54,7 @@ export interface ThreatProfile {
   spawn_time: number;
   speed_class: SpeedClass | null;
   visibility_class: Visibility | null;
+  flight_pattern: FlightPattern | null;
 }
 
 export interface Scenario {
@@ -77,6 +88,8 @@ export interface PublicThreat {
   spawn_time: number;
   speed_class: SpeedClass | null;
   visibility_class: Visibility | null;
+  /** Assigned trajectory, trainee-visible like behavior. Never an answer. */
+  flight_pattern: FlightPattern | null;
   /** Observable behavior signature, or "indeterminate" when unreadable. */
   behavior: string;
   cue_clear: boolean;

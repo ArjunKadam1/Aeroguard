@@ -5,6 +5,7 @@ import { SessionController, initialSelectedThreatId } from "./session";
 function threat(id: string): PublicThreat {
   return {
     id, spawn_time: 1, speed_class: "medium", visibility_class: "clear",
+    flight_pattern: "straight-transit",
     behavior: "steady-transit", cue_clear: true,
   };
 }

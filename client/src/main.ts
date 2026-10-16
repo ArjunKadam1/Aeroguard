@@ -140,7 +140,7 @@ function startPlay(
 
   const views = new Map<string, ThreatView>();
   for (const profile of scenario.threats) {
-    const view = createThreatView(profile);
+    const view = createThreatView(profile, scenario.seed);
     sim.scene.add(view.mesh);
     views.set(profile.id, view);
   }
@@ -591,10 +591,14 @@ onDetect: () => {
     for (const view of views.values()) {
       updateThreatView(view, elapsedSec);
       // Cruise above local terrain so contacts clear hills in the new world.
+      // The trajectory altitude offset rides on top, clamped to its design
+      // band so a pattern can never push a contact through the terrain.
+      const altOffset = view.mesh.userData.altOffset as number | undefined;
+      const climb = Math.min(45, Math.max(-20, altOffset ?? 0));
       view.mesh.position.y = sim.world.heightAt(
         view.mesh.position.x,
         view.mesh.position.z,
-      ) + THREAT_CRUISE_ALTITUDE + Math.sin(elapsedSec) * 2;
+      ) + THREAT_CRUISE_ALTITUDE + climb + Math.sin(elapsedSec) * 2;
     }
   }
 

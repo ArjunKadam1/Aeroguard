@@ -10,6 +10,7 @@ const LEGEND = {
 function threat(id: string, behavior = "steady-transit", spawn_time = 1): PublicThreat {
   return {
     id, spawn_time, speed_class: "medium", visibility_class: "clear",
+    flight_pattern: "straight-transit",
     behavior, cue_clear: behavior !== "indeterminate",
   };
 }

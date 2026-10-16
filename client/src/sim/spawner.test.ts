@@ -6,6 +6,7 @@ function threat(id: string, spawn_time: number): ThreatProfile {
   return {
     id, category: "unknown_aerial_object", classification_label: "unknown",
     expected_response: "track", spawn_time, speed_class: "medium", visibility_class: "clear",
+    flight_pattern: "straight-transit",
   };
 }
 function scenario(): Scenario {

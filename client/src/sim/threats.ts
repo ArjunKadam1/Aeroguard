@@ -1,16 +1,12 @@
 import * as THREE from "three";
 import type { PublicThreat, SpeedClass } from "../api/types";
+import {
+  corridorParams,
+  hashString,
+  trajectoryPosition,
+} from "./trajectory";
 
 const SPEED_UNITS: Record<SpeedClass, number> = { slow: 3, medium: 6, fast: 10 };
-
-// Threats traverse a fixed-width corridor and re-enter from the left instead of
-// flying off forever. The camera sits at (0, 30, 60) looking at the origin with a
-// 60-degree FOV, which frames roughly -70..+50 on x, so the corridor is centred a
-// little left of the origin to match. Duration is derived from the speed class so
-// every threat crosses the same spatial path at the cadence its speed implies.
-const CORRIDOR_MIN_X = -70;
-const CORRIDOR_MAX_X = 50;
-const CORRIDOR_WIDTH = CORRIDOR_MAX_X - CORRIDOR_MIN_X;
 
 // Visibility design: a threat must be readable against BOTH a bright day sky
 // and a dark night sky. Any single color fails one of them (a mid-tone against
@@ -45,14 +41,6 @@ export function airframeForId(id: string): AirframeKind {
 export interface ThreatView {
   profile: PublicThreat;
   mesh: THREE.Object3D;
-}
-
-function hashString(value: string): number {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash * 31 + value.charCodeAt(i)) & 0x7fffffff;
-  }
-  return hash;
 }
 
 function accentDot(id: string, color: number): THREE.Mesh {
@@ -137,7 +125,7 @@ function buildWing(id: string, color: number): THREE.Group {
   return group;
 }
 
-export function createThreatView(profile: PublicThreat): ThreatView {
+export function createThreatView(profile: PublicThreat, seed: number): ThreatView {
   const hash = hashString(profile.id);
   const color = PALETTE[hash % PALETTE.length];
   const kind = airframeForId(profile.id);
@@ -146,10 +134,14 @@ export function createThreatView(profile: PublicThreat): ThreatView {
 
   mesh.visible = false;
   mesh.userData.airframe = kind;
-  mesh.userData.row = ((hash >> 3) % 3) - 1;
+  // Corridor stagger (id-hashed, unchanged); the scenario seed rides along for
+  // T1's seeded parameter derivation.
+  const params = corridorParams(profile.id);
+  mesh.userData.row = params.row;
   // Phase offset keeps different threats out of lockstep along the corridor,
   // and staggers their strobes so the sky does not blink in unison.
-  mesh.userData.phaseOffset = ((hash >> 5) % 100) / 100;
+  mesh.userData.phaseOffset = params.phase;
+  mesh.userData.seed = seed;
   mesh.userData.strobe = mesh.getObjectByName(`threat-strobe-${profile.id}`);
   return { profile, mesh };
 }
@@ -157,15 +149,15 @@ export function createThreatView(profile: PublicThreat): ThreatView {
 export function updateThreatView(view: ThreatView, elapsedSec: number): void {
   const speed = SPEED_UNITS[view.profile.speed_class ?? "medium"];
   const travel = Math.max(0, elapsedSec - view.profile.spawn_time);
-  const phaseOffset = view.mesh.userData.phaseOffset as number;
-  const row = view.mesh.userData.row as number;
-  // Wrap the travelled distance so the threat re-enters from the left each lap
-  // rather than exiting the frustum for the rest of the session.
-  const lap = (travel * speed + phaseOffset * CORRIDOR_WIDTH) % CORRIDOR_WIDTH;
+  // Assigned pattern executes here; the scenario seed joins the parameter
+  // derivation so identical ids diverge across seeds.
+  const seed = (view.mesh.userData.seed as number | undefined) ?? 0;
+  const point = trajectoryPosition(view.profile.flight_pattern, travel, speed, seed, view.profile.id);
+  view.mesh.userData.altOffset = point.altOffset;
   view.mesh.position.set(
-    CORRIDOR_MIN_X + lap,
-    8 + Math.sin(travel) * 0.5,
-    row * 20,
+    point.x,
+    8 + Math.sin(travel) * 0.5 + point.altOffset,
+    point.z,
   );
   view.mesh.visible = elapsedSec >= view.profile.spawn_time;
   // Aviation-style white strobe: brief flash roughly once a second, staggered
