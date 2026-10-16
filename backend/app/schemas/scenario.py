@@ -51,6 +51,23 @@ class SpeedClass(str, Enum):
     fast = "fast"
 
 
+class FlightPattern(str, Enum):
+    """Independent trajectory vocabulary, assigned per threat.
+
+    Deliberately independent of classification_label: motion is observable
+    evidence and must never identify the hidden answer. The client executes
+    these patterns from the redacted view; detection semantics are unchanged.
+    """
+
+    straight_transit = "straight-transit"
+    wide_weave = "wide-weave"
+    erratic_jink = "erratic-jink"
+    orbit_hold = "orbit-hold"
+    direct_approach = "direct-approach"
+    altitude_step = "altitude-step"
+    perimeter_sweep = "perimeter-sweep"
+
+
 class ScenarioGenerateRequest(BaseModel):
     difficulty: int = Field(ge=1, le=10)
     environment: Environment
@@ -67,6 +84,7 @@ class ThreatProfile(BaseModel):
     spawn_time: float = Field(ge=0)
     speed_class: SpeedClass | None = None
     visibility_class: Visibility | None = None
+    flight_pattern: FlightPattern | None = None
 
 
 class Scenario(BaseModel):

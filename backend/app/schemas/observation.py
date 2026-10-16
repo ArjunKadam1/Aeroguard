@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.schemas.scenario import Environment, SpeedClass, TimeOfDay, Visibility
+from app.schemas.scenario import Environment, FlightPattern, SpeedClass, TimeOfDay, Visibility
 
 
 class PublicThreat(BaseModel):
@@ -19,6 +19,9 @@ class PublicThreat(BaseModel):
     spawn_time: float = Field(ge=0)
     speed_class: SpeedClass | None = None
     visibility_class: Visibility | None = None
+    # Assigned trajectory, trainee-visible like behavior: observable motion,
+    # never an answer (patterns are label-independent by construction).
+    flight_pattern: FlightPattern | None = None
     # Observable behavior signature derived from ground truth
     # (services/observation_cues.py). Never the classification itself.
     behavior: str

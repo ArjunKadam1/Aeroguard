@@ -91,6 +91,7 @@ def build_public_scenario(scenario: Scenario) -> PublicScenario:
                 spawn_time=threat.spawn_time,
                 speed_class=threat.speed_class,
                 visibility_class=threat.visibility_class,
+                flight_pattern=threat.flight_pattern,
                 behavior=behavior,
                 cue_clear=clear,
             )

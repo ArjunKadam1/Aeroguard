@@ -16,6 +16,7 @@ from app.schemas.scenario import (
     ClassificationLabel,
     Environment,
     ExpectedResponse,
+    FlightPattern,
     Scenario,
     ScenarioGenerateRequest,
     SpeedClass,
@@ -68,6 +69,7 @@ LABEL_TO_RESPONSE: dict[ClassificationLabel, ExpectedResponse] = {
 
 _THREAT_LABELS: tuple[ClassificationLabel, ...] = tuple(ClassificationLabel)
 _SPEED_CLASSES: tuple[SpeedClass, ...] = tuple(SpeedClass)
+_FLIGHT_PATTERNS: tuple[FlightPattern, ...] = tuple(FlightPattern)
 
 
 class InfeasibleScenarioError(ValueError):
@@ -126,10 +128,15 @@ def _build_threats(
     count: int,
     duration_seconds: float,
     visibility: Visibility,
+    seed: int,
 ) -> list[ThreatProfile]:
     threats: list[ThreatProfile] = []
     window = duration_seconds * SPAWN_WINDOW_RATIO
     slot = window / max(count, 1)
+    # Pattern assignment runs on its own stream so it can never perturb the
+    # label/spawn/speed draws: existing seeds keep their exact scenarios, and
+    # patterns stay statistically independent of classification labels.
+    pattern_rng = random.Random(f"flight-pattern:{seed}")
     for index in range(count):
         label = rng.choice(_THREAT_LABELS)
         # One slot per threat keeps multi-threat scenarios staggered, and the
@@ -144,6 +151,7 @@ def _build_threats(
                 spawn_time=spawn_time,
                 speed_class=rng.choice(_SPEED_CLASSES),
                 visibility_class=visibility,
+                flight_pattern=pattern_rng.choice(_FLIGHT_PATTERNS),
             )
         )
     return threats
@@ -182,5 +190,5 @@ def generate_scenario(request: ScenarioGenerateRequest, seed: int) -> Scenario:
         visibility=visibility,
         sensor_quality=sensor_quality,
         duration_seconds=duration_seconds,
-        threats=_build_threats(rng, request.threat_count, duration_seconds, visibility),
+        threats=_build_threats(rng, request.threat_count, duration_seconds, visibility, seed),
     )

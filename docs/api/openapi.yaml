@@ -341,6 +341,12 @@ components:
           visibility_class:
             type: string
             enum: [clear, reduced, poor]
+          flight_pattern:
+            type: string
+            enum: [straight-transit, wide-weave, erratic-jink, orbit-hold, direct-approach, altitude-step, perimeter-sweep]
+            description: >
+              Assigned trajectory, independent of the hidden classification.
+              Observable motion, never an answer.
       PublicThreat:
         type: object
         required: [id, spawn_time, behavior, cue_clear]
@@ -357,6 +363,12 @@ components:
           visibility_class:
             type: string
             enum: [clear, reduced, poor]
+          flight_pattern:
+            type: string
+            enum: [straight-transit, wide-weave, erratic-jink, orbit-hold, direct-approach, altitude-step, perimeter-sweep]
+            description: >
+              Assigned trajectory, trainee-visible like behavior.
+              Observable motion, never an answer.
           behavior:
             type: string
             description: >

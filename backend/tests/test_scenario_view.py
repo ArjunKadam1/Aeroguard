@@ -38,7 +38,7 @@ def test_view_never_contains_answers(client) -> None:
     for threat in view["threats"]:
         assert set(threat.keys()) == {
             "id", "spawn_time", "speed_class", "visibility_class",
-            "behavior", "cue_clear",
+            "flight_pattern", "behavior", "cue_clear",
         }
     assert set(view.keys()) == {
         "scenario_id", "seed", "observation_version", "difficulty",
