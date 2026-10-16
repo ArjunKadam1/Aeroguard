@@ -534,8 +534,9 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
 #station-help kbd { color: var(--txt); font-family: ui-monospace, monospace; }
 
 /* Performance dashboard */
-#dashboard-panel { inset: 0; display: flex; align-items: flex-start; justify-content: center;
-  overflow-y: auto; background: radial-gradient(ellipse at 50% 30%, #131C27 0%, var(--bg-0) 70%);
+#dashboard-panel { inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-start; overflow-y: auto;
+  background: radial-gradient(ellipse at 50% 30%, #131C27 0%, var(--bg-0) 70%);
   border: 0; border-radius: 0; }
 #dashboard-panel > * { max-width: 880px; width: 100%; }
 .dash-subject { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim);
