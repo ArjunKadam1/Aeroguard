@@ -38,12 +38,14 @@ export function createSimScene(container: HTMLElement, scenario: PublicScenario)
   function resize(): void {
     const width = container.clientWidth;
     const height = container.clientHeight;
+    // Never poison the canvas with a zero size: while the scene is hidden the
+    // container reads 0x0, and a 0px canvas would then keep its own container
+    // at zero height. The frame loop refits once the view is visible.
+    if (width <= 0 || height <= 0) return;
     renderer.setPixelRatio(pixelRatio);
     renderer.setSize(width, height);
-    if (height > 0) {
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    }
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
   }
   resize();
   window.addEventListener("resize", resize);

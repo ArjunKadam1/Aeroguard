@@ -80,10 +80,28 @@ describe("advanceStationHeading", () => {
     expect(advanceStationHeading(0.3, true, -1)).toBe(0.3);
   });
 
-  it("is bounded to a sector rather than spinning freely", () => {
+  it("wraps around the full circle instead of stopping at a sector edge", () => {
     let heading = 0;
-    for (let i = 0; i < 1000; i += 1) heading = advanceStationHeading(heading, true, 0.05);
-    expect(heading).toBeGreaterThanOrEqual(-0.9);
-    expect(heading).toBeLessThanOrEqual(0.9);
+    for (let i = 0; i < 2000; i += 1) heading = advanceStationHeading(heading, true, 0.05);
+    // 2000 × 0.05s × 0.55 ≈ 55 rad ≈ 8.75 turns: must have wrapped, and the
+    // result stays a valid heading.
+    expect(heading).toBeGreaterThanOrEqual(0);
+    expect(heading).toBeLessThan(Math.PI * 2);
+  });
+
+  it("sweeps the reverse direction on Shift+S", () => {
+    const forward = advanceStationHeading(1, true, 0.05, -1);
+    const reverse = advanceStationHeading(1, true, 0.05, 1);
+    expect(reverse).toBeGreaterThan(1);
+    expect(forward).toBeLessThan(1);
+    // Opposite directions cancel out over the same step.
+    const roundTrip = advanceStationHeading(advanceStationHeading(2, true, 0.05, -1), true, 0.05, 1);
+    expect(roundTrip).toBeCloseTo(2, 9);
+  });
+
+  it("wraps past north instead of clamping", () => {
+    // Just below 0 heading backwards must wrap to just below 2π.
+    const wrapped = advanceStationHeading(0.01, true, 0.05, -1);
+    expect(wrapped).toBeGreaterThan(Math.PI * 2 - 0.1);
   });
 });

@@ -60,18 +60,25 @@ export function isMiss(contacts: readonly ScreenContact[], clickX: number, click
 
 export const STATION_SWEEP_RATE = 0.55; // radians per second
 
+export type SweepDirection = 1 | -1;
+
 /**
  * Advance the station heading while the sweep key is held.
- * Pure so the "camera is still unless asked to move" rule is directly testable.
+ * The mast traverses a full circle: heading wraps modulo 2π, so holding the
+ * sweep key sweeps the whole sky. Direction comes from the key combination
+ * (S vs Shift+S); the observation model accepts any heading, so this changes
+ * search coverage but no sensor rule. Pure so the "camera is still unless
+ * asked to move" rule is directly testable.
  */
 export function advanceStationHeading(
   heading: number,
   sweeping: boolean,
   dt: number,
+  direction: SweepDirection = -1,
 ): number {
   if (!sweeping) return heading;
   const step = dt > 0 ? Math.min(dt, 0.1) * STATION_SWEEP_RATE : 0;
-  // Bounded to a sector rather than a full circle: a real mast has a traverse
-  // limit, and an unbounded spin is disorienting.
-  return Math.max(-0.9, Math.min(0.9, heading - step));
+  if (step === 0) return heading;
+  const full = Math.PI * 2;
+  return (((heading + direction * step) % full) + full) % full;
 }

@@ -105,6 +105,8 @@ export function buildStartPanelHtml(state: StartPanelState): string {
         <div>
           <h1>Aeroguard</h1>
           <p class="start-sub">Counter-UAS threat detection &amp; classification trainer</p>
+          <p class="start-desc">Observe sensor contacts, assess the evidence, classify each contact
+            and choose the authorised response. Every session is scored and debriefed.</p>
         </div>
         <span class="start-badge">TRAINING</span>
       </header>
@@ -114,25 +116,33 @@ export function buildStartPanelHtml(state: StartPanelState): string {
           state.error ?? ""
         }</div>
 
-        <div class="start-modes">
-          <span class="start-modetitle">Operator role</span>
-          <div class="mode-row">${modeButtons}</div>
-          <p class="start-modehint">${MODE_HINT[state.mode]}</p>
+        <section class="start-section">
+          <h2 class="start-sectitle">Operator configuration</h2>
+          <div class="start-modes">
+            <span class="start-modetitle">Operator role</span>
+            <div class="mode-row">${modeButtons}</div>
+            <p class="start-modehint">${MODE_HINT[state.mode]}</p>
+          </div>
+
+          <div class="start-modes">
+            <span class="start-modetitle">Scenario source</span>
+            <div class="mode-row">${sourceButtons}</div>
+          </div>
+        </section>
+
+        <section class="start-section">
+          <h2 class="start-sectitle">Scenario configuration</h2>
+          ${scenarioPicker}
+        </section>
+
+        <div class="start-actions">
+          <button type="submit" class="start-submit"${state.busy ? " disabled" : ""}>
+            ${state.busy ? "GENERATING…" : "START SCENARIO"}
+          </button>
+          <button type="button" id="start-performance" class="start-submit start-secondary">
+            PERFORMANCE
+          </button>
         </div>
-
-        <div class="start-modes">
-          <span class="start-modetitle">Scenario source</span>
-          <div class="mode-row">${sourceButtons}</div>
-        </div>
-
-        ${scenarioPicker}
-
-        <button type="submit" class="start-submit"${state.busy ? " disabled" : ""}>
-          ${state.busy ? "GENERATING…" : "START SCENARIO"}
-        </button>
-        <button type="button" id="start-performance" class="start-submit start-secondary">
-          PERFORMANCE
-        </button>
       </form>
     </div>`;
 }

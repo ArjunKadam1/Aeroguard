@@ -89,12 +89,20 @@ export function buildHudHtml(
     },
   );
   return `
-    <div><strong>${scenario.environment} / ${scenario.time_of_day}</strong></div>
-    <div>difficulty ${scenario.difficulty} &middot; sensor ${scenario.sensor_quality.toFixed(2)}${visibility}</div>
-    <div>time left: ${Math.max(0, Math.ceil(remaining))}s</div>
-    <div class="hud-threat-count">${threats.length} contact${threats.length === 1 ? "" : "s"} observed</div>
-    <ul class="hud-threats">${rows}</ul>
-    <div class="hud-legend"><span class="hud-legend-title">SIGNATURES</span>${legend}</div>
+    <div class="hud-sec">
+      <span class="hud-sec-title">Scenario</span>
+      <div class="hud-scenario">${scenario.environment} / ${scenario.time_of_day}</div>
+      <div class="hud-sub">difficulty ${scenario.difficulty} &middot; sensor ${scenario.sensor_quality.toFixed(2)}${visibility}</div>
+      <div class="hud-sub">time left: ${Math.max(0, Math.ceil(remaining))}s</div>
+    </div>
+    <div class="hud-sec">
+      <span class="hud-sec-title">Contacts</span>
+      <div class="hud-threat-count">${threats.length} contact${threats.length === 1 ? "" : "s"} observed</div>
+      <ul class="hud-threats">${rows}</ul>
+    </div>
+    <div class="hud-sec">
+      <div class="hud-legend"><span class="hud-legend-title">SIGNATURES</span>${legend}</div>
+    </div>
     ${sensors}`;
 }
 

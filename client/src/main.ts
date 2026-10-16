@@ -11,6 +11,7 @@ import {
 } from "./sim/input";
 import { advanceStationHeading, pickContact, type ScreenContact } from "./sim/picking";
 import {
+  RADAR_PERIOD_S,
   SCOUT_RADAR_RANGE,
   detectRadar,
   detectVisual,
@@ -37,6 +38,7 @@ import { mountFlightHud } from "./ui/flightHud";
 import { mountHud } from "./ui/hud";
 import { mountRadar } from "./ui/radar";
 import { mountSensorPlot } from "./ui/sensorPlot";
+import { mountSelectedPanel, type SelectedContact } from "./ui/selectedPanel";
 import { mountStartPanel, type OperatorMode, type StartPanel } from "./ui/startPanel";
 import { mountStationHelp } from "./ui/stationHelp";
 import { mountViewBar } from "./ui/viewBar";
@@ -114,9 +116,37 @@ function startPlay(
   scenario: PublicScenario, sessionId: string, traineeId: string, unit: string | null,
   mode: OperatorMode,
 ): void {
+  const topbar = document.createElement("div");
+  topbar.id = "topbar";
+  topbar.innerHTML = `
+    <div class="topbar-brand"><h1>AUROGUARD</h1><span class="start-badge">TRAINING</span></div>
+    <div class="topbar-meta"><b>${scenario.scenario_id}</b> &middot; ${scenario.environment} / ${scenario.time_of_day}`
+    + ` &middot; difficulty ${scenario.difficulty} &middot; ${mode === "airborne" ? "airborne" : "ground station"}</div>
+    <div class="spacer"></div>
+    <span class="topbar-status"></span>
+    <span class="topbar-viewbar"></span>`;
+  app.appendChild(topbar);
+
+  const workbench = document.createElement("div");
+  workbench.id = "workbench";
+  workbench.innerHTML = `<div id="panel-left"></div><div id="viewport"></div><div id="panel-right"></div>`;
+  app.appendChild(workbench);
+  const panelLeft = workbench.querySelector<HTMLElement>("#panel-left")!;
+  const viewport = workbench.querySelector<HTMLElement>("#viewport")!;
+  const panelRight = workbench.querySelector<HTMLElement>("#panel-right")!;
+
+  const actionbar = document.createElement("div");
+  actionbar.id = "actionbar";
+  app.appendChild(actionbar);
+
   const sceneContainer = document.createElement("div");
   sceneContainer.id = "scene";
-  app.appendChild(sceneContainer);
+  // Positioned inline, not just via stylesheet: if a stale stylesheet is ever
+  // in play, the canvas container must still fill the viewport, otherwise the
+  // container collapses and the canvas can never be fitted to it.
+  sceneContainer.style.position = "absolute";
+  sceneContainer.style.inset = "0";
+  viewport.appendChild(sceneContainer);
   const sim = createSimScene(sceneContainer, scenario);
 
   const startedAt = performance.now();
@@ -150,8 +180,10 @@ function startPlay(
     mode,
     scenario.threats.map((threat) => threat.id),
   );
-  const hud = mountHud(app, scenario, airborne ? "scout" : "station", (id) => selectContact(id));
+  const hud = mountHud(panelLeft, scenario, airborne ? "scout" : "station", (id) => selectContact(id));
   hud.setSelected(selected);
+  const selectedPanel = mountSelectedPanel(panelRight);
+  selectedPanel.set(null);
 
   // Sensor conditions never change mid-session; the observation model reads
   // them, and the HUD states them, so degraded sensing is always explained.
@@ -223,18 +255,18 @@ function startPlay(
   // The flight HUD is an airborne instrument; showing it on the ground station
   // would imply piloting that the mode does not offer.
   const flightHud = airborne
-    ? mountFlightHud(app, () => cameraMode, () => {
+    ? mountFlightHud(viewport, () => cameraMode, () => {
       cameraMode = nextCameraMode(cameraMode);
     })
     : null;
 
   // The station camera does not move on its own, so the trainee has to know
   // how to pan it and how to release a lock.
-  const stationHelp = airborne ? null : mountStationHelp(app);
+  const stationHelp = airborne ? null : mountStationHelp(viewport);
 
   // The scout's radar scope: bearing/range blips with no identity. Clicking a
   // blip selects the track; classification still needs the visual sensor.
-  const radar = airborne ? mountRadar(app, (id) => selectContact(id)) : null;
+  const radar = airborne ? mountRadar(viewport, (id) => selectContact(id)) : null;
 
   // Right rails (world-view layout): flight help above the radar scope, so
   // neither panel can overlap the other.
@@ -246,7 +278,7 @@ function startPlay(
     airborneRail = document.createElement("div");
     airborneRail.id = "right-rail";
     airborneRail.append(flightHud.help, radar.root);
-    app.appendChild(airborneRail);
+    viewport.appendChild(airborneRail);
   }
 
   // View modes: 2D Sensors is the default working view, 3D World keeps the
@@ -256,14 +288,14 @@ function startPlay(
   // view is the sector plot; the scout's is its radar scope (already a 2D
   // sensor display, now also the default).
   const viewStore = createViewModeStore(DEFAULT_VIEW_MODE);
-  const viewBar = mountViewBar(app, (mode) => viewStore.set(mode));
-  const plot = airborne ? null : mountSensorPlot(app, (id) => selectContact(id));
+  const viewBar = mountViewBar(topbar.querySelector<HTMLElement>(".topbar-viewbar")!, (mode) => viewStore.set(mode));
+  const plot = airborne ? null : mountSensorPlot(viewport, (id) => selectContact(id));
   // Center stage for the 2D sensor view: the sector plot (station) or radar
   // scope (scout) moves here large and centred; the rails keep the help and
   // instrument panels. Moving nodes preserves their listeners and state.
   const stage = document.createElement("div");
   stage.id = "sensor-stage";
-  app.appendChild(stage);
+  viewport.appendChild(stage);
   // Assigned by the station rail block below; applyView first runs after it.
   let stationRail: HTMLElement | null = null;
   function applyView(): void {
@@ -274,6 +306,7 @@ function startPlay(
     // (centred overlay vs docked side panel, via CSS).
     stage.classList.toggle("is-hidden", mode === "world");
     app.classList.toggle("view-split", mode === "split");
+    app.classList.toggle("view-sensors", mode === "sensors");
     // Split narrows the scene container: refit the canvas to it (a no-op
     // while hidden, where the size reads 0 and no draw happens).
     sim.resize();
@@ -300,7 +333,7 @@ function startPlay(
     stationRail = document.createElement("div");
     stationRail.id = "right-rail";
     stationRail.append(stationHelp, plot.root);
-    app.appendChild(stationRail);
+    viewport.appendChild(stationRail);
   }
   applyView();
 
@@ -314,12 +347,17 @@ function startPlay(
 
   let stationHeading = 0;
   let sweeping = false;
+  // Sweep direction follows the key combination: S pans one way around the
+  // full circle, Shift+S the other. Read live on every key repeat so picking
+  // up or releasing Shift mid-sweep reverses immediately.
+  let sweepDir: 1 | -1 = -1;
 
   function onKeyDown(event: KeyboardEvent): void {
     if (!airborne) {
-      // Station controls: hold S to pan the mast, Esc to release the lock.
+      // Station controls: hold S to sweep the mast, Esc to release the lock.
       if (event.key === "s" || event.key === "S") {
         sweeping = true;
+        sweepDir = event.shiftKey ? 1 : -1;
         event.preventDefault();
         return;
       }
@@ -377,7 +415,19 @@ function startPlay(
       hud.setThreats(states);
       const current = controller.threats.find((t) => t.profile.id === selected);
       actions.setStage(current?.stage ?? "pending");
+      selectedPanel.set(selectedInfo());
     }
+  }
+
+  const statusEl = topbar.querySelector<HTMLElement>(".topbar-status")!;
+  let statusKey = "";
+  function syncTopStatus(elapsedSec: number): void {
+    const observed = controller.threats.filter((t) => t.stage !== "pending").length;
+    const left = Math.max(0, Math.ceil(scenario.duration_seconds - elapsedSec));
+    const key = `${left}|${observed}|${finishing}`;
+    if (key === statusKey) return;
+    statusKey = key;
+    statusEl.innerHTML = `T-${left}s &middot; <b>${observed}</b> observed &middot; ${finishing ? "complete" : "live"}`;
   }
 
   const spawner = new Spawner(scenario, (id) => {
@@ -389,11 +439,12 @@ function startPlay(
       selected = id;
       hud.setSelected(id);
       hudStageKey = "";
+      selectedPanel.set(selectedInfo());
     }
   });
   controller.start();
 
-  const actions = mountActions(app, {
+  const actions = mountActions(actionbar, {
 onDetect: () => {
       if (!selected) return flashNotice("Select a threat first.");
       // Detection is an observation: some sensor track must hold the contact.
@@ -458,8 +509,44 @@ onDetect: () => {
     selected = id;
     hud.setSelected(id);
     hudStageKey = "";
+    selectedPanel.set(selectedInfo());
     // Once locked, the pan hint is redundant noise; restore it on release.
     stationHelp?.classList.toggle("is-hidden", id !== null);
+  }
+
+  /** Trainee-visible evidence for the selected contact, or null. */
+  function selectedInfo(): SelectedContact | null {
+    if (!selected) return null;
+    const entry = controller.threats.find((t) => t.profile.id === selected);
+    if (!entry) return null;
+    const track = tracks.find((t) => t.id === selected);
+    const sensing = selectedSensing();
+    // Live grid fix from the rendered contact: the same position the trainee
+    // sees on screen, rounded so the panel only rewrites on real movement.
+    const mesh = views.get(selected);
+    const pos = mesh && mesh.mesh.visible
+      ? {
+        x: Math.round(mesh.mesh.position.x),
+        z: Math.round(mesh.mesh.position.z),
+        alt: Math.round(mesh.mesh.position.y),
+      }
+      : null;
+    return {
+      state: {
+        id: entry.profile.id,
+        stage: entry.stage,
+        behavior: entry.profile.behavior,
+        track: track ? trackState(track, lastTrackTick) : "unseen",
+      },
+      behaviorHint: scenario.cue_legend[entry.profile.behavior] ?? "",
+      observer: airborne ? "scout" : "station",
+      sensor: sensing.sensor,
+      tracked: track !== undefined,
+      firstSeenMs: firstSeen.get(selected) ?? null,
+      pos,
+      speedClass: entry.profile.speed_class,
+      flightPattern: entry.profile.flight_pattern,
+    };
   }
 
   sim.renderer.domElement.addEventListener("click", (event) => {
@@ -531,6 +618,8 @@ onDetect: () => {
   }
 
   let lastFrameMs = performance.now();
+  let lastSceneW = 0;
+  let lastSceneH = 0;
 
   /**
    * Advance the authoritative simulation by one frame: flight physics, station
@@ -552,7 +641,7 @@ onDetect: () => {
     } else {
       // Ground station: the mast pans only while the sweep key is held. The
       // heading is simulation state; pointing the camera at it is rendering.
-      stationHeading = advanceStationHeading(stationHeading, sweeping, dt);
+      stationHeading = advanceStationHeading(stationHeading, sweeping, dt, sweepDir);
     }
 
     // Unified sensor update on fixed time quanta (both modes): raw visual
@@ -581,7 +670,21 @@ onDetect: () => {
       // Scout 2D view: the scope shows every track, styled by source --
       // radar-held solid, visual-held as rings -- so nothing observable is
       // hidden from the sensor display.
-      radar?.setTracks(tracks, SCOUT_RADAR_RANGE, sweepIndex);
+      // New arrivals this sweep get an arrival flash on the scope: tracks
+      // first seen since the current sweep began. Purely observational.
+      const sweepStartMs = sweepIndex * RADAR_PERIOD_S * 1000;
+      const freshIds = tracks
+        .filter((t) => (firstSeen.get(t.id) ?? -1) >= sweepStartMs)
+        .map((t) => t.id);
+      // Live altitude for the selected contact, from its rendered position.
+      const altById: Record<string, number> = {};
+      if (selected) {
+        const selectedView = views.get(selected);
+        if (selectedView && selectedView.mesh.visible) {
+          altById[selected] = Math.round(selectedView.mesh.position.y);
+        }
+      }
+      radar?.setTracks(tracks, SCOUT_RADAR_RANGE, sweepIndex, selected, freshIds, altById);
       // Station 2D view: the sector plot follows the same tick with the live
       // mast heading, so the wedge shows where the sensor is looking.
       plot?.setTracks(tracks, trackTickNow, stationHeading, selected);
@@ -591,7 +694,7 @@ onDetect: () => {
     for (const view of views.values()) {
       updateThreatView(view, elapsedSec);
       // Cruise above local terrain so contacts clear hills in the new world.
-      // The trajectory altitude offset rides on top, clamped to its design
+      // The trajectory's altitude offset rides on top, clamped to its design
       // band so a pattern can never push a contact through the terrain.
       const altOffset = view.mesh.userData.altOffset as number | undefined;
       const climb = Math.min(45, Math.max(-20, altOffset ?? 0));
@@ -610,6 +713,16 @@ onDetect: () => {
    */
   function renderViews(dt: number, elapsedSec: number): void {
     if (viewStore.get() !== "sensors") {
+      // Refit the canvas whenever the container size changed: view switches,
+      // window resizes, or recovery from a zero-size canvas all funnel here,
+      // so a stranded canvas heals on its own within one frame.
+      const sceneW = sceneContainer.clientWidth;
+      const sceneH = sceneContainer.clientHeight;
+      if (sceneW > 0 && sceneH > 0 && (sceneW !== lastSceneW || sceneH !== lastSceneH)) {
+        lastSceneW = sceneW;
+        lastSceneH = sceneH;
+        sim.resize();
+      }
       const focusView = selected ? views.get(selected) : undefined;
       const focusPoint = focusView && focusView.mesh.visible
         ? focusView.mesh.position.clone()
@@ -636,6 +749,7 @@ onDetect: () => {
 
     syncHudThreats();
     hud.setRemaining(scenario.duration_seconds - elapsedSec);
+    syncTopStatus(elapsedSec);
     if (flightHud) {
       flightHud.update({
         altitude: altitudeAgl(flight, flightEnv),

@@ -59,9 +59,16 @@ describe("sector plot blips", () => {
     expect(html).toContain("plot-tentative");
     expect(html).toContain("plot-coasting");
     expect(html).toContain("is-selected");
+    expect(html).toContain("plot-halo");
     for (const id of ["T01", "T02", "T03"]) {
       expect(html).toContain(`data-track="${id}"`);
     }
+  });
+
+  it("renders cardinal directions and bearing ticks", () => {
+    const html = buildSensorPlotHtml([], 10, 0, null);
+    for (const mark of [">N<", ">E<", ">S<", ">W<"]) expect(html).toContain(mark);
+    expect(html).toContain("plot-tick");
   });
 
   it("exposes blips as keyboard-operable buttons with spoken labels", () => {

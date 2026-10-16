@@ -48,6 +48,11 @@ export function mountActions(root: HTMLElement, hooks: ActionHooks): Actions {
   element.className = "panel";
   element.innerHTML = `
     <div class="action-groups">
+      <div class="action-steps" aria-hidden="true">
+        <span class="action-step" data-step="detect">1 Detect</span>
+        <span class="action-step" data-step="classify">2 Classify</span>
+        <span class="action-step" data-step="respond">3 Respond</span>
+      </div>
       <div class="action-group" data-group="detect">
         <span class="action-group-label">Detect</span>
         <button data-action="detect">DETECT</button>
@@ -70,6 +75,10 @@ export function mountActions(root: HTMLElement, hooks: ActionHooks): Actions {
 
   const notice = element.querySelector<HTMLElement>(".action-notice")!;
 
+  // Workflow order mirrors the session state machine: detect -> classify ->
+  // respond. Steps at or before the active group read as done; the active
+  // group reads as current.
+  const STEP_ORDER: ActionGroup[] = ["detect", "classify", "respond"];
   function applyGroupState(activeGroup: ActionGroup | null, enabled: boolean): void {
     for (const group of element.querySelectorAll<HTMLElement>(".action-group[data-group]")) {
       const isActive = activeGroup !== null && group.dataset.group === activeGroup;
@@ -82,6 +91,12 @@ export function mountActions(root: HTMLElement, hooks: ActionHooks): Actions {
     element
       .querySelectorAll<HTMLElement>(".action-group-secondary button")
       .forEach((b) => ((b as HTMLButtonElement).disabled = !enabled));
+    const activeIndex = activeGroup ? STEP_ORDER.indexOf(activeGroup) : -1;
+    element.querySelectorAll<HTMLElement>(".action-step[data-step]").forEach((step) => {
+      const index = STEP_ORDER.indexOf(step.dataset.step as ActionGroup);
+      step.classList.toggle("is-done", enabled && activeIndex >= 0 && index < activeIndex);
+      step.classList.toggle("is-current", enabled && step.dataset.step === activeGroup);
+    });
   }
 
   applyGroupState(null, true);

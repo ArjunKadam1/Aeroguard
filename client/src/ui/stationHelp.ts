@@ -5,6 +5,7 @@ const STATION_HELP: ReadonlyArray<[string, string]> = [
   ["Click contact", "select and lock"],
   ["Esc / empty sky", "release lock"],
   ["Hold S", "pan mast"],
+  ["Shift + S", "pan mast reverse"],
 ];
 
 export function buildStationHelpHtml(help = STATION_HELP): string {

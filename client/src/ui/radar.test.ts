@@ -77,6 +77,83 @@ describe("buildRadarHtml", () => {
     expect(html).toContain('role="button"');
     expect(html).toContain('aria-label="Select contact T01 · radar"');
   });
+
+  it("marks the selected blip with a halo and nothing else", () => {
+    const html = buildRadarHtml([track({ id: "T01" }), track({ id: "T02" })], 400, 0, "T02");
+    expect(html).toMatch(/radar-blip is-fresh is-selected" data-track="T02"/);
+    expect(html).toContain("radar-halo");
+    expect(html).not.toMatch(/is-selected" data-track="T01"/);
+  });
+
+  it("renders a sweep wedge slaved to the sweep hand", () => {
+    const first = buildRadarHtml([], 400, 0);
+    const second = buildRadarHtml([], 400, 1);
+    expect(first).toContain("radar-sweep-wedge");
+    expect(first).toContain("radar-ping");
+    // The wedge rotates with the same tick clock as the hand.
+    const dOf = (html: string): string => {
+      const m = html.match(/<path d="([^"]+)" class="radar-sweep-wedge"/);
+      return m ? m[1] : "";
+    };
+    expect(dOf(first)).not.toBe("");
+    expect(dOf(second)).not.toBe("");
+    expect(dOf(first)).not.toBe(dOf(second));
+  });
+
+  it("renders cardinal marks and bearing ticks without leaking truth", () => {
+    const html = buildRadarHtml([track({ id: "T01" })], 400, 0).toLowerCase();
+    for (const mark of [">n<", ">e<", ">s<", ">w<"]) expect(html).toContain(mark);
+    expect(html).toContain("radar-tick");
+    for (const leaked of ["classification_label", "expected_response", "suspicious", "civilian"]) {
+      expect(html).not.toContain(leaked);
+    }
+  });
+
+  it("reads out the selected track's bearing, range, source, and freshness", () => {
+    const html = buildRadarHtml(
+      [track({ id: "T02", bearingDeg: 45, range: 212, lastSource: "radar", lastTick: 3 })],
+      400, 3, "T02",
+    );
+    expect(html).toContain("radar-readout");
+    expect(html).toContain("T02");
+    expect(html).toContain("045°");
+    expect(html).toContain("212u");
+    expect(html).toContain("fresh");
+    expect(html).not.toContain("no selection");
+  });
+
+  it("shows a quiet placeholder with no selection and coasting state otherwise", () => {
+    expect(buildRadarHtml([track({ id: "T01" })], 400, 0)).toContain("no selection");
+    const html = buildRadarHtml(
+      [track({ id: "T01", lastSource: "visual", seenVisual: true, lastTick: 1 })],
+      400, 4, "T01",
+    );
+    expect(html).toContain("visual hold");
+    expect(html).toContain("coasting");
+  });
+
+  it("appends live altitude to the readout when supplied", () => {
+    const html = buildRadarHtml(
+      [track({ id: "T01", bearingDeg: 90, range: 200, lastTick: 2 })],
+      400, 2, "T01", [], { T01: 132 },
+    );
+    expect(html).toContain("ALT 132u");
+    const bare = buildRadarHtml(
+      [track({ id: "T01", bearingDeg: 90, range: 200, lastTick: 2 })],
+      400, 2, "T01",
+    );
+    expect(bare).not.toContain("ALT");
+  });
+
+  it("flashes only tracks first seen on the latest sweep", () => {
+    const html = buildRadarHtml(
+      [track({ id: "T01" }), track({ id: "T02" })],
+      400, 5, null, ["T02"],
+    );
+    expect(html).toContain("radar-new-ring");
+    expect(html).toMatch(/is-new" data-track="T02"/);
+    expect(html).not.toMatch(/is-new" data-track="T01"/);
+  });
 });
 
 describe("buildSensorStatusHtml", () => {
