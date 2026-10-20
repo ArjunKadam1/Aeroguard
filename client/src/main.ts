@@ -1,15 +1,26 @@
 import { createApiClient } from "./api/client";
-import type { AAR, PublicScenario, StartRequest } from "./api/types";
+import type { AAR, ClassificationLabel, ExpectedResponse, PublicScenario, StartRequest } from "./api/types";
 import {
-  applyCamera, applyStationCamera, createAircraft, nextCameraMode, spinRotors, type CameraMode,
+  STATION_POSITION, applyCamera, applyStationCamera, createAircraft, nextCameraMode, spinRotors,
+  type CameraMode,
 } from "./sim/aircraft";
 import {
+  ASSIST_INTERVAL_S, assistAim, assistResponseClass, autopilotInput,
+  nextAssistActions, patrolWaypoint, slewHeading, smoothAim, stationHeadingFor, trackTarget,
+  wrapTwoPi,
+  type AssistAction, type AssistAim, type AssistContact,
+} from "./sim/assist";
+import { assessmentGuidance } from "./sim/coaching";
+import {
   GRAVITY, altitudeAgl, createFlightState, forwardVector, speedOf, stepFlight,
+  type FlightInput, type Vec3,
 } from "./sim/flight";
 import {
   clearControls, createControlState, isFlightKey, press, readControls, release,
 } from "./sim/input";
-import { advanceStationHeading, pickContact, type ScreenContact } from "./sim/picking";
+import {
+  STATION_SWEEP_RATE, advanceStationHeading, pickContact, type ScreenContact,
+} from "./sim/picking";
 import {
   RADAR_PERIOD_S,
   SCOUT_RADAR_RANGE,
@@ -27,19 +38,29 @@ import {
   type SensorConditions,
   type Track,
 } from "./sim/observation";
+import { responseConfigFor, resolveResponseOutcome, type ResponseClass } from "./sim/response";
 import { createSimScene } from "./sim/scene";
 import { Spawner } from "./sim/spawner";
-import { createThreatView, updateThreatView, THREAT_CRUISE_ALTITUDE, type ThreatView } from "./sim/threats";
-import { SessionController, initialSelectedThreatId } from "./state/session";
+import { createThreatView, updateThreatView, threatPositionAt, type ThreatView } from "./sim/threats";
+import { buildSwarmIndex } from "./sim/swarm";
+import { SessionController, initialSelectedThreatId, type ThreatState } from "./state/session";
 import { createEventQueue } from "./state/eventQueue";
 import { createViewModeStore, DEFAULT_VIEW_MODE } from "./state/viewMode";
 import { mountActions } from "./ui/actions";
+import { mountAlerts, trackAlerts, type ObservedState } from "./ui/alerts";
+import { createAudioEngine } from "./ui/audio";
 import { mountFlightHud } from "./ui/flightHud";
-import { mountHud } from "./ui/hud";
+import { mountHud, prioritySorted } from "./ui/hud";
 import { mountRadar } from "./ui/radar";
+import { isResponseWorkflowEvent, responseNotice } from "./ui/responseAutomation";
 import { mountSensorPlot } from "./ui/sensorPlot";
-import { mountSelectedPanel, type SelectedContact } from "./ui/selectedPanel";
-import { mountStartPanel, type OperatorMode, type StartPanel } from "./ui/startPanel";
+import {
+  mountSelectedPanel,
+  type ResponseAssistantAction,
+  type ResponseAssistantView,
+  type SelectedContact,
+} from "./ui/selectedPanel";
+import { mountStartPanel, type AssistMode, type OperatorMode, type StartPanel } from "./ui/startPanel";
 import { mountStationHelp } from "./ui/stationHelp";
 import { mountViewBar } from "./ui/viewBar";
 
@@ -56,7 +77,9 @@ function showSetup(): void {
   clear();
   startPanelRef.current = mountStartPanel(
     app,
-    (request, traineeId, unit, mode) => { void runSession(request, traineeId, unit, mode); },
+    (request, traineeId, unit, mode, assist) => {
+      void runSession(request, traineeId, unit, mode, assist);
+    },
     (traineeId, unit) => {
       // Lazily imported: the dashboard is not on the critical path to a session.
       void import("./ui/dashboard").then(({ showDashboard }) => {
@@ -74,6 +97,7 @@ async function runSession(
   traineeId: string,
   unit: string | null = null,
   mode: OperatorMode = "station",
+  assist: AssistMode = "manual",
 ): Promise<void> {
   // Surface failures instead of rejecting into an unhandled promise: an
   // infeasible configuration (night at too low a difficulty) returns 422, and
@@ -87,6 +111,7 @@ async function runSession(
       trainee_id: traineeId,
       scenario_id: scenario.scenario_id,
       unit,
+      ai_assisted: assist === "assisted",
     });
     // Gameplay runs on the redacted view only. The full scenario (with
     // classification labels and expected responses) is never retained in the
@@ -95,7 +120,7 @@ async function runSession(
     startPanelRef.current?.endLoading();
     clear();
     startPanelRef.current = null;
-    startPlay(view, session.session_id, traineeId, unit, mode);
+    startPlay(view, session.session_id, traineeId, unit, mode, assist);
   } catch (error) {
     startPanelRef.current?.showError(errorMessage(error));
     startPanelRef.current?.endLoading();
@@ -114,18 +139,46 @@ function errorMessage(error: unknown): string {
 
 function startPlay(
   scenario: PublicScenario, sessionId: string, traineeId: string, unit: string | null,
-  mode: OperatorMode,
+  mode: OperatorMode, assist: AssistMode = "manual",
 ): void {
+  const assisted = assist === "assisted";
   const topbar = document.createElement("div");
   topbar.id = "topbar";
   topbar.innerHTML = `
     <div class="topbar-brand"><h1>AUROGUARD</h1><span class="start-badge">TRAINING</span></div>
     <div class="topbar-meta"><b>${scenario.scenario_id}</b> &middot; ${scenario.environment} / ${scenario.time_of_day}`
-    + ` &middot; difficulty ${scenario.difficulty} &middot; ${mode === "airborne" ? "airborne" : "ground station"}</div>
+    + ` &middot; difficulty ${scenario.difficulty} &middot; ${mode === "airborne" ? "airborne" : "ground station"}`
+    + `${assisted ? ` &middot; <span class="topbar-assisted">AI-assisted</span>` : ""}</div>
     <div class="spacer"></div>
     <span class="topbar-status"></span>
+    <button type="button" class="topbar-audio" aria-pressed="false">Sound off</button>
+    <button type="button" class="topbar-auto" aria-pressed="true">Auto: on</button>
     <span class="topbar-viewbar"></span>`;
   app.appendChild(topbar);
+
+  // Training audio cues: muted by default, toggled here. The toggle click is
+  // the user gesture that unlocks the AudioContext.
+  const audio = createAudioEngine();
+  const audioButton = topbar.querySelector<HTMLButtonElement>(".topbar-audio")!;
+  audioButton.addEventListener("click", () => {
+    audio.setEnabled(!audio.enabled());
+    audioButton.textContent = audio.enabled() ? "Sound on" : "Sound off";
+    audioButton.setAttribute("aria-pressed", String(audio.enabled()));
+  });
+
+  // Fast-loop automations: auto-advance of the contact lock after a response
+  // resolves, and the idle auto-request (session.ts). Both are system-initiated
+  // but never approve or submit anything on the trainee's behalf. Hotkeys and
+  // the HUD priority order are always on and not governed by this toggle. The
+  // AI-assisted driver is a separate, labelled mode and is not governed by it.
+  let automations = true;
+  const autoButton = topbar.querySelector<HTMLButtonElement>(".topbar-auto")!;
+  autoButton.addEventListener("click", () => {
+    automations = !automations;
+    autoButton.textContent = `Auto: ${automations ? "on" : "off"}`;
+    autoButton.setAttribute("aria-pressed", String(automations));
+    controller.setAutoRequestEnabled(automations);
+  });
 
   const workbench = document.createElement("div");
   workbench.id = "workbench";
@@ -164,13 +217,44 @@ function startPlay(
     },
   );
   const controller = new SessionController(scenario, sessionId, traineeId, {
-    emit: (nextEvent) => queue.emit(nextEvent),
+    emit: (nextEvent) => {
+      // Simulated-response state changes are event-driven: a phase record
+      // refreshes the selected panel, and a resolved simulation (or an
+      // automated proposal) announces itself on the alert strip. Nothing here
+      // polls per frame.
+      if (isResponseWorkflowEvent(nextEvent)) selectedPanel.set(selectedInfo());
+      const notice = responseNotice(nextEvent);
+      if (notice) {
+        alerts.push([notice], now());
+        if (notice.tone === "info") audio.confirm();
+        else audio.outcome();
+      }
+      // Auto-advance: when the selected contact's scored response resolves it,
+      // move the lock to the oldest unresolved contact so the fast loop keeps
+      // moving. Only the selection moves; nothing is submitted on the
+      // trainee's behalf.
+      if (automations && nextEvent.type === "THREAT_RESOLVED" && nextEvent.threat_id === selected) {
+        advanceSelection();
+      }
+      queue.emit(nextEvent);
+    },
     now,
+    response: {
+      config: responseConfigFor(scenario),
+      resolve: (threatId) => resolveResponseOutcome(scenario, threatId),
+      // Read only by the idle auto-request automation; the manual request path
+      // passes tracked explicitly.
+      tracked: (threatId) => tracks.some((track) => track.id === threatId),
+    },
+    // Assisted mode: every decision this controller records is stamped with
+    // assist provenance. The gates and the scoring path are untouched.
+    assisted,
   });
 
   const views = new Map<string, ThreatView>();
+  const swarmIndex = buildSwarmIndex(scenario.threats);
   for (const profile of scenario.threats) {
-    const view = createThreatView(profile, scenario.seed);
+    const view = createThreatView(profile, scenario.seed, swarmIndex.get(profile.id));
     sim.scene.add(view.mesh);
     views.set(profile.id, view);
   }
@@ -182,15 +266,24 @@ function startPlay(
   );
   const hud = mountHud(panelLeft, scenario, airborne ? "scout" : "station", (id) => selectContact(id));
   hud.setSelected(selected);
-  const selectedPanel = mountSelectedPanel(panelRight);
+  const alerts = mountAlerts(panelLeft, (id) => selectContact(id));
+  const selectedPanel = mountSelectedPanel(panelRight, (action, responseClass) => {
+    if (!applyAssistantAction(action, responseClass)) return;
+    audio.confirm();
+    // Refresh immediately: a reopen records no phase event, so the emitter
+    // above cannot be the only refresh path.
+    selectedPanel.set(selectedInfo());
+  });
   selectedPanel.set(null);
 
   // Sensor conditions never change mid-session; the observation model reads
   // them, and the HUD states them, so degraded sensing is always explained.
+  // The environment drives radar clutter (urban ghost returns).
   const conditions: SensorConditions = {
     sensorQuality: scenario.sensor_quality,
     night: scenario.time_of_day === "night",
     visibility: scenario.visibility,
+    environment: scenario.environment,
   };
 
   // Unified sensor tracks (both modes), refreshed on fixed time quanta so
@@ -222,6 +315,7 @@ function startPlay(
         id,
         position: { x: position.x, y: position.y, z: position.z },
         spawned: true,
+        pattern: view.profile.flight_pattern,
       });
     }
     return truths;
@@ -235,6 +329,16 @@ function startPlay(
       ...permissions,
       sensor: track && track.seenVisual ? "visual" : "radar",
     };
+  }
+
+  /**
+   * Actor label for decisions the operator takes by hand. In manual sessions
+   * this adds nothing (payloads stay exactly as they were); in an assisted
+   * session it names the human override, so the record never claims the
+   * assistant did something it did not.
+   */
+  function operatorActor(): Record<string, unknown> {
+    return assisted ? { by: "operator" } : {};
   }
 
   // --- Flight (airborne mode only) --------------------------------------
@@ -352,7 +456,250 @@ function startPlay(
   // up or releasing Shift mid-sweep reverses immediately.
   let sweepDir: 1 | -1 = -1;
 
+  /** Mast slew for assisted mode: hold the aim, or sweep when searching. */
+  function slewAssistHeading(dt: number): number {
+    const target = assistTargetPosition(dt);
+    if (target !== null) return slewHeading(stationHeading, stationHeadingFor(target), dt);
+    if (!assistAimNow.search) return stationHeading;
+    // Nothing observed yet: sweep at the trainee's own rate, so the assistant
+    // searches no faster than an operator could.
+    return wrapTwoPi(stationHeading + STATION_SWEEP_RATE * Math.min(dt, 0.1));
+  }
+
+  // --- AI-assisted mode --------------------------------------------------
+  // The assistant drives detect -> classify -> respond through the same
+  // controller methods a trainee clicks, so every gate, event and score stays
+  // exactly what it would be by hand; only provenance changes. Decisions come
+  // from the backend assistant endpoint, which sees public evidence only.
+  // Sensing is aimed (mast slew, airborne autopilot) so classification has a
+  // fair visual track to work from.
+  let assistAimNow: AssistAim = { target: null, search: false };
+  let assistNextActAt = 0;
+  const assistPending = new Set<string>();
+  // The aim point is smoothed across frames: the track filter still leaves a
+  // few units of fix-to-fix step, and a controller that chases it weaves.
+  let assistAimPoint: Vec3 | null = null;
+  let assistAimPointFor: string | null = null;
+
+  const CLASSIFICATION_LABELS: readonly ClassificationLabel[] =
+    ["friendly", "civilian", "unknown", "suspicious", "hostile"];
+  const EXPECTED_RESPONSES: readonly ExpectedResponse[] =
+    ["monitor", "track", "report", "hold"];
+
+  function assistContacts(): AssistContact[] {
+    return controller.threats.map((entry) => {
+      const track = tracks.find((candidate) => candidate.id === entry.profile.id);
+      const workflow = entry.stage === "responded"
+        ? controller.responseWorkflow(entry.profile.id)?.state ?? "none"
+        : "none";
+      return {
+        id: entry.profile.id,
+        stage: entry.stage,
+        tracked: track !== undefined,
+        visual: track?.seenVisual ?? false,
+        workflow,
+      };
+    });
+  }
+
+  /**
+   * The assessment already recorded for a contact -- the assistant's own
+   * decision, or an operator override. Read back from the event log so the
+   * response request follows whatever was actually submitted.
+   */
+  function classificationOf(id: string): string | null {
+    for (let index = controller.events.length - 1; index >= 0; index -= 1) {
+      const event = controller.events[index];
+      if (event.type !== "CLASSIFICATION_SUBMITTED" || event.threat_id !== id) continue;
+      const label = event.payload?.label;
+      return typeof label === "string" ? label : null;
+    }
+    return null;
+  }
+
+  function detectionProvenance(id: string): Record<string, unknown> {
+    const track = tracks.find((candidate) => candidate.id === id);
+    const provenance: Record<string, unknown> = {
+      observer: mode,
+      sensor: track?.seenVisual ? "visual" : "radar",
+    };
+    const seenAt = firstSeen.get(id);
+    if (seenAt !== undefined) provenance.first_seen_ms = seenAt;
+    return provenance;
+  }
+
+  /** Requests one decision and applies it when it arrives. */
+  function assistDecide(entry: ThreatState, stage: "classify" | "respond"): void {
+    const id = entry.profile.id;
+    const track = tracks.find((candidate) => candidate.id === id);
+    assistPending.add(id);
+    void api.assistDecide({
+      stage,
+      behavior: entry.profile.behavior,
+      cue_clear: entry.profile.cue_clear,
+      flight_pattern: entry.profile.flight_pattern,
+      speed_class: entry.profile.speed_class,
+      // Honest sensor provenance: the evidence came from whatever track the
+      // sensor actually held for this contact.
+      observed_via: track?.seenVisual ? "visual" : "radar",
+      swarm: entry.profile.swarm_id !== null,
+      classification: stage === "respond" ? classificationOf(id) : null,
+    }).then((decision) => {
+      assistPending.delete(id);
+      if (finishing) return;
+      if (stage === "classify") {
+        if (!CLASSIFICATION_LABELS.includes(decision.decision as ClassificationLabel)) return;
+        // Same parity as the manual gate: the decision was requested while a
+        // visual track held the contact, so re-check it before applying. If it
+        // lapsed, the driver simply re-acquires and retries on its next beat.
+        const visual = tracks.find((candidate) => candidate.id === id)?.seenVisual === true;
+        if (!visual) return;
+        if (controller.classify(id, decision.decision as ClassificationLabel, detectionProvenance(id))) {
+          audio.confirm();
+        }
+      } else {
+        if (!EXPECTED_RESPONSES.includes(decision.decision as ExpectedResponse)) return;
+        if (controller.respond(id, decision.decision as ExpectedResponse, detectionProvenance(id))) {
+          audio.confirm();
+        }
+      }
+      selectedPanel.set(selectedInfo());
+    }).catch(() => {
+      assistPending.delete(id);
+      // The driver retries on its next beat; the notice just explains the pause.
+      reportEventError("Assistant request failed — retrying.");
+    });
+  }
+
+  function applyAssistAction(action: AssistAction): void {
+    const entry = controller.threats.find((t) => t.profile.id === action.id);
+    if (entry === undefined) return;
+    switch (action.kind) {
+      case "detect":
+        if (controller.detect(action.id, detectionProvenance(action.id))) audio.confirm();
+        return;
+      case "classify":
+      case "respond":
+        assistDecide(entry, action.kind);
+        return;
+      case "request": {
+        const label = classificationOf(action.id) ?? "unknown";
+        controller.requestResponse(
+          action.id,
+          tracks.some((track) => track.id === action.id),
+          assistResponseClass(label),
+          { auto: true },
+        );
+        return;
+      }
+      case "approve":
+        controller.approveProposal(action.id, { auto: true });
+        return;
+    }
+  }
+
+  function stepAssistant(elapsedSec: number): void {
+    if (!assisted) return;
+    const contacts = assistContacts();
+    // The aim follows the picture every frame; decisions are paced so the
+    // assistant works at a deliberate rate rather than one frame at a time.
+    assistAimNow = assistAim(contacts, assistAimNow.target);
+    if (elapsedSec < assistNextActAt) return;
+    const actions = nextAssistActions(contacts, assistPending);
+    if (actions.length === 0) {
+      assistNextActAt = elapsedSec + 0.25;
+      return;
+    }
+    assistNextActAt = elapsedSec + ASSIST_INTERVAL_S;
+    for (const action of actions) applyAssistAction(action);
+  }
+
+  /**
+   * Aim point for the sensor: from the contact's own track fix (bearing and
+   * range are sensor data, never ground truth) at its rendered altitude. The
+   * point is smoothed across frames so the airframe follows the contact rather
+   * than every step of the track filter.
+   */
+  function assistTargetPosition(dt: number): Vec3 | null {
+    const id = assistAimNow.target;
+    if (id === null) return null;
+    const track = tracks.find((candidate) => candidate.id === id);
+    const view = views.get(id);
+    if (track === undefined || view === undefined || !view.mesh.visible) return null;
+    const from = airborne ? flight.position : STATION_POSITION;
+    const raw = trackTarget(from, track.bearingDeg, track.range, view.mesh.position.y);
+    if (assistAimPointFor !== id) {
+      assistAimPointFor = id;
+      assistAimPoint = { ...raw };
+    } else {
+      assistAimPoint = smoothAim(assistAimPoint, raw, dt);
+    }
+    return assistAimPoint;
+  }
+
+  /**
+   * Flight input for the assisted autopilot: close on and hold an observed
+   * contact for the visual fix, fly the radar search orbit when nothing is
+   * observed yet, and hover when the picture is worked through.
+   */
+  function assistedFlightInput(elapsedSec: number, dt: number): FlightInput {
+    const target = assistTargetPosition(dt);
+    if (target !== null) {
+      return autopilotInput(flight.position, flight.attitude.y, target, {
+        velocity: flight.velocity,
+      });
+    }
+    if (assistAimNow.search) {
+      // Radar reach is range-limited, so searching is about position: a slow
+      // orbit sweeps the whole corridor with its 400-unit coverage. Standoff
+      // zero follows the moving waypoint instead of holding short of it.
+      return autopilotInput(
+        flight.position, flight.attitude.y,
+        patrolWaypoint(elapsedSec, flight.position.y),
+        { standoff: 0, velocity: flight.velocity },
+      );
+    }
+    return autopilotInput(flight.position, flight.attitude.y, null);
+  }
+
+  /**
+   * Keyboard fast loop, active in both operator modes. Returns true when the
+   * key was consumed. Only reuses existing action paths: digits click the
+   * enabled stage buttons, Enter runs the assistant's primary action
+   * (approve, else request mitigation), Tab cycles unresolved contacts.
+   */
+  function handleShortcut(event: KeyboardEvent): boolean {
+    if (event.ctrlKey || event.metaKey || event.altKey) return false;
+    const tag = document.activeElement?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return false;
+    if (event.key >= "1" && event.key <= "9") {
+      return actions.triggerSlot(Number(event.key) - 1);
+    }
+    if (event.key === "Enter") {
+      if (!selected) return false;
+      const entry = controller.threats.find((t) => t.profile.id === selected);
+      if (!entry || (entry.stage !== "classified" && entry.stage !== "responded")) return false;
+      const workflow = controller.responseWorkflow(entry.profile.id);
+      let done = false;
+      if (workflow?.state === "awaiting_approval") done = applyAssistantAction("approve");
+      else if (workflow?.state === "ready") done = applyAssistantAction("request", "mitigation");
+      if (done) audio.confirm();
+      return done;
+    }
+    if (event.key === "Tab") {
+      return cycleSelection(event.shiftKey ? -1 : 1);
+    }
+    return false;
+  }
+
   function onKeyDown(event: KeyboardEvent): void {
+    // Fast-loop shortcuts run in both modes, ahead of the flight and station
+    // key maps; they never overlap those keys, and a consumed key is
+    // suppressed so a focused button cannot double-fire on Enter.
+    if (handleShortcut(event)) {
+      event.preventDefault();
+      return;
+    }
     if (!airborne) {
       // Station controls: hold S to sweep the mast, Esc to release the lock.
       if (event.key === "s" || event.key === "S") {
@@ -397,6 +744,10 @@ function startPlay(
   // Each row also carries its track lifecycle state, so tentative/coasting
   // contacts read as less certain than confirmed ones.
   let hudStageKey = "";
+  // Previous per-contact observable states for the alert diff. Only the
+  // change branch below diffs, so the alert path shares the HUD's existing
+  // change detection and costs nothing when the picture is steady.
+  let alertStates: ObservedState[] = [];
   function syncHudThreats(): void {
     const states = controller.threats
       .filter((t) => t.stage !== "pending")
@@ -406,13 +757,18 @@ function startPlay(
           id: t.profile.id,
           stage: t.stage,
           behavior: t.profile.behavior,
-          track: track ? trackState(track, lastTrackTick) : "unseen",
+          track: track ? trackState(track, lastTrackTick) : "unseen" as const,
         };
       });
     const key = states.map((s) => `${s.id}:${s.stage}:${s.track}`).join("|");
     if (key !== hudStageKey) {
       hudStageKey = key;
-      hud.setThreats(states);
+      alerts.push(trackAlerts(alertStates, states), now());
+      alertStates = states;
+      // The list and the keyboard cycle share one order: unresolved contacts
+      // first (oldest arrival first), resolved ones last. trackAlerts matches
+      // by id, so the alert diff is unaffected by the display order.
+      hud.setThreats(prioritySorted(states));
       const current = controller.threats.find((t) => t.profile.id === selected);
       actions.setStage(current?.stage ?? "pending");
       selectedPanel.set(selectedInfo());
@@ -462,11 +818,15 @@ onDetect: () => {
       if (!view || !view.mesh.visible) {
         return flashNotice("No observable contact selected.");
       }
-      const provenance: Record<string, unknown> = { observer: mode, sensor: sensing.sensor };
+      const provenance: Record<string, unknown> = {
+        observer: mode, sensor: sensing.sensor, ...operatorActor(),
+      };
       const seenAt = firstSeen.get(selected);
       if (seenAt !== undefined) provenance.first_seen_ms = seenAt;
       if (!controller.detect(selected, provenance)) {
         flashNotice("Already detected.");
+      } else {
+        audio.confirm();
       }
     },
     onClassify: (label) => {
@@ -477,18 +837,29 @@ onDetect: () => {
       if (!sensing.classify) {
         return flashNotice("Classification needs a visual contact — aim the camera at it.");
       }
-      if (!controller.classify(selected, label, { observer: mode, sensor: sensing.sensor })) {
+      if (!controller.classify(selected, label, {
+        observer: mode, sensor: sensing.sensor, ...operatorActor(),
+      })) {
         flashNotice("Detect the threat before classifying.");
+      } else {
+        audio.confirm();
       }
     },
     onRespond: (response) => {
       if (!selected) return flashNotice("Select a threat first.");
       const sensing = selectedSensing();
-      if (!controller.respond(selected, response, { observer: mode, sensor: sensing.sensor })) {
+      if (!controller.respond(selected, response, {
+        observer: mode, sensor: sensing.sensor, ...operatorActor(),
+      })) {
         flashNotice("Classify the threat before responding.");
+      } else {
+        audio.confirm();
       }
     },
-    onFalseAlarm: () => controller.falseAlarm(),
+    onFalseAlarm: () => {
+      controller.falseAlarm();
+      audio.confirm();
+    },
     onFinish: () => finish(),
   });
   reportEventError = (message) => actions.setNotice(message);
@@ -496,6 +867,7 @@ onDetect: () => {
   let noticeTimer = 0;
   function flashNotice(message: string): void {
     actions.setNotice(message);
+    audio.error();
     window.clearTimeout(noticeTimer);
     noticeTimer = window.setTimeout(() => actions.setNotice(""), 2000);
   }
@@ -514,6 +886,39 @@ onDetect: () => {
     stationHelp?.classList.toggle("is-hidden", id !== null);
   }
 
+  /** Contact ids still needing an action, oldest arrival first (scenario order). */
+  function unresolvedIds(): string[] {
+    return controller.threats
+      .filter((t) => t.stage !== "pending" && t.stage !== "responded")
+      .map((t) => t.profile.id);
+  }
+
+  /**
+   * Moves the lock to the next (or previous) unresolved contact, wrapping.
+   * Used by Tab and Shift+Tab; never touches workflow or scored state.
+   */
+  function cycleSelection(direction: 1 | -1): boolean {
+    const ids = unresolvedIds();
+    if (ids.length === 0) return false;
+    const at = selected !== null ? ids.indexOf(selected) : -1;
+    const nextIndex = at === -1
+      ? (direction === 1 ? 0 : ids.length - 1)
+      : (at + direction + ids.length) % ids.length;
+    selectContact(ids[nextIndex]);
+    return true;
+  }
+
+  /**
+   * Auto-advance after the selected contact resolves: lock the oldest
+   * unresolved contact. When none remain the resolved contact stays selected,
+   * because its outcome is still worth reading.
+   */
+  function advanceSelection(): void {
+    const ids = unresolvedIds();
+    if (ids.length === 0) return;
+    selectContact(ids[0]);
+  }
+
   /** Trainee-visible evidence for the selected contact, or null. */
   function selectedInfo(): SelectedContact | null {
     if (!selected) return null;
@@ -521,6 +926,7 @@ onDetect: () => {
     if (!entry) return null;
     const track = tracks.find((t) => t.id === selected);
     const sensing = selectedSensing();
+    const lifecycle = track ? trackState(track, lastTrackTick) : "unseen" as const;
     // Live grid fix from the rendered contact: the same position the trainee
     // sees on screen, rounded so the panel only rewrites on real movement.
     const mesh = views.get(selected);
@@ -536,7 +942,7 @@ onDetect: () => {
         id: entry.profile.id,
         stage: entry.stage,
         behavior: entry.profile.behavior,
-        track: track ? trackState(track, lastTrackTick) : "unseen",
+        track: lifecycle,
       },
       behaviorHint: scenario.cue_legend[entry.profile.behavior] ?? "",
       observer: airborne ? "scout" : "station",
@@ -546,7 +952,62 @@ onDetect: () => {
       pos,
       speedClass: entry.profile.speed_class,
       flightPattern: entry.profile.flight_pattern,
+      guidance: assessmentGuidance({
+        stage: entry.stage,
+        track: lifecycle,
+        sensor: sensing.sensor,
+        behavior: entry.profile.behavior,
+        cueClear: entry.profile.cue_clear,
+      }),
+      assistant: assistantView(entry),
     };
+  }
+
+  /**
+   * The simulated-response assistant for a contact, shown once the contact is
+   * classified -- the same gate the scored response requires. Null before
+   * that, so the section can never offer an action the gates would refuse.
+   */
+  function assistantView(entry: ThreatState): ResponseAssistantView | null {
+    if (entry.stage !== "classified" && entry.stage !== "responded") return null;
+    const workflow = controller.responseWorkflow(entry.profile.id);
+    if (workflow === undefined) return null;
+    return {
+      state: workflow.state,
+      responseClass: workflow.proposal?.responseClass ?? null,
+      measure: workflow.proposal?.measure ?? null,
+      basis: workflow.proposal?.basis ?? null,
+      outcome: workflow.outcome?.result ?? null,
+      cause: workflow.outcome?.cause ?? null,
+      reason: workflow.reason,
+    };
+  }
+
+  /**
+   * Response assistant click -> controller call. False means the workflow
+   * refused (stale click, duplicate, wrong stage): a silent no-op, because the
+   * section only ever renders actions its current state allows.
+   */
+  function applyAssistantAction(
+    action: ResponseAssistantAction,
+    responseClass?: ResponseClass,
+  ): boolean {
+    if (!selected) return false;
+    const id = selected;
+    switch (action) {
+      case "request":
+        // Buttons pass their explicit class; the Enter shortcut omits it and
+        // gets the conservative default.
+        return controller.requestResponse(
+          id,
+          tracks.some((track) => track.id === id),
+          responseClass ?? "mitigation",
+        );
+      case "approve": return controller.approveProposal(id);
+      case "reject": return controller.rejectProposal(id);
+      case "cancel": return controller.cancelSimulation(id);
+      case "reopen": return controller.reopenProposal(id);
+    }
   }
 
   sim.renderer.domElement.addEventListener("click", (event) => {
@@ -614,7 +1075,7 @@ onDetect: () => {
     const { showAar } = await import("./ui/aar");
     showAar(app, api, sessionId, traineeId, scenario, fallbackAar, () => {
       showSetup();
-    }, unit);
+    }, unit, assisted);
   }
 
   let lastFrameMs = performance.now();
@@ -630,8 +1091,16 @@ onDetect: () => {
    * cadence); V1 will route view writes per active view.
    */
   function stepSim(dt: number, elapsedSec: number): void {
+    // The assistant reads the picture from the previous tick, decides at its
+    // own pace, and aims the sensor for the step that follows.
+    stepAssistant(elapsedSec);
     if (airborne) {
-      stepFlight(flight, readControls(controls, dt), dt, flightEnv);
+      // In assisted mode the assistant flies (hold, close, or search orbit);
+      // manual mode keeps the trainee's controls untouched.
+      const input = assisted
+        ? assistedFlightInput(elapsedSec, dt)
+        : readControls(controls, dt);
+      stepFlight(flight, input, dt, flightEnv);
       aircraft.position.set(flight.position.x, flight.position.y, flight.position.z);
       aircraft.rotation.set(flight.attitude.x, flight.attitude.y, flight.attitude.z);
       spinRotors(aircraft, elapsedSec);
@@ -639,9 +1108,12 @@ onDetect: () => {
       // always contains what the camera is looking at.
       sim.world.aimSunAt(aircraft.position.x, aircraft.position.y, aircraft.position.z);
     } else {
-      // Ground station: the mast pans only while the sweep key is held. The
-      // heading is simulation state; pointing the camera at it is rendering.
-      stationHeading = advanceStationHeading(stationHeading, sweeping, dt, sweepDir);
+      // Ground station: the mast pans only while the sweep key is held (or,
+      // in assisted mode, is slewed toward the contact awaiting a visual fix).
+      // The heading is simulation state; pointing the camera at it is rendering.
+      stationHeading = assisted
+        ? slewAssistHeading(dt)
+        : advanceStationHeading(stationHeading, sweeping, dt, sweepDir);
     }
 
     // Unified sensor update on fixed time quanta (both modes): raw visual
@@ -662,11 +1134,14 @@ onDetect: () => {
         radarDetections = radarDetections.concat(falseDetections(scenario.seed, sweepIndex, conditions));
       }
       tracks = updateTracks(tracks, visual, radarDetections, trackTickNow);
+      let arrivals = 0;
       for (const track of tracks) {
         if (track.lastTick === trackTickNow && !firstSeen.has(track.id)) {
           firstSeen.set(track.id, Math.round(elapsedSec * 1000));
+          arrivals += 1;
         }
       }
+      if (arrivals > 0) audio.arrival();
       // Scout 2D view: the scope shows every track, styled by source --
       // radar-held solid, visual-held as rings -- so nothing observable is
       // hidden from the sensor display.
@@ -694,14 +1169,14 @@ onDetect: () => {
     for (const view of views.values()) {
       updateThreatView(view, elapsedSec);
       // Cruise above local terrain so contacts clear hills in the new world.
-      // The trajectory's altitude offset rides on top, clamped to its design
-      // band so a pattern can never push a contact through the terrain.
-      const altOffset = view.mesh.userData.altOffset as number | undefined;
-      const climb = Math.min(45, Math.max(-20, altOffset ?? 0));
-      view.mesh.position.y = sim.world.heightAt(
-        view.mesh.position.x,
-        view.mesh.position.z,
-      ) + THREAT_CRUISE_ALTITUDE + climb + Math.sin(elapsedSec) * 2;
+      // Same composition as threatPositionAt, so the debrief replay reproduces
+      // flown paths exactly.
+      const flown = threatPositionAt(
+        view.profile, scenario.seed, elapsedSec,
+        (x, z) => sim.world.heightAt(x, z),
+        swarmIndex.get(view.profile.id),
+      );
+      view.mesh.position.set(flown.x, flown.y, flown.z);
     }
   }
 

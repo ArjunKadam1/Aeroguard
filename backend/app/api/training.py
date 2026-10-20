@@ -42,13 +42,22 @@ from app.services.adaptive import (
 router = APIRouter(tags=["training"])
 
 
-def _completed_sessions(db: Session, trainee_id: str) -> list[SessionRow]:
-    return (
-        db.query(SessionRow)
-        .filter(SessionRow.trainee_id == trainee_id, SessionRow.status == "completed")
-        .order_by(SessionRow.completed_at, SessionRow.session_id)
-        .all()
+def _completed_sessions(
+    db: Session, trainee_id: str, include_assisted: bool = False
+) -> list[SessionRow]:
+    """Completed sessions for a trainee, oldest first.
+
+    AI-assisted sessions are excluded by default: they are demonstrations of
+    the assistant, not competency evidence, so adaptive level, recommendations
+    and unit rollups never see them. The trainee's own history passes
+    include_assisted=True to list them with their label.
+    """
+    query = db.query(SessionRow).filter(
+        SessionRow.trainee_id == trainee_id, SessionRow.status == "completed"
     )
+    if not include_assisted:
+        query = query.filter(SessionRow.ai_assisted.is_(False))
+    return query.order_by(SessionRow.completed_at, SessionRow.session_id).all()
 
 
 def _average_reaction_ms(db: Session, session_id: str) -> float | None:
@@ -245,7 +254,7 @@ def list_trainee_sessions(
     that can list past sessions at all, so no history view can exist.
     """
     _require_trainee(db, trainee_id)
-    rows = _completed_sessions(db, trainee_id)
+    rows = _completed_sessions(db, trainee_id, include_assisted=True)
     items: list[SessionHistoryItem] = []
     for row in rows:
         score = db.get(ScoreRow, row.session_id)
@@ -257,6 +266,7 @@ def list_trainee_sessions(
                 session_id=row.session_id,
                 scenario_id=row.scenario_id,
                 unit=row.unit,
+                ai_assisted=bool(row.ai_assisted),
                 completed_at=row.completed_at.isoformat() if row.completed_at else None,
                 final_score=score.final_score,
                 environment=scenario.environment,
@@ -275,10 +285,18 @@ def list_trainee_sessions(
 def unit_performance(
     unit: str, db: Session = Depends(get_db)
 ) -> UnitPerformance:
-    """Aggregate performance across every completed session in a unit."""
+    """Aggregate performance across every completed session in a unit.
+
+    AI-assisted sessions are demos of the assistant, not competency evidence,
+    so they are excluded from the rollup like everywhere else.
+    """
     sessions = (
         db.query(SessionRow)
-        .filter(SessionRow.unit == unit, SessionRow.status == "completed")
+        .filter(
+            SessionRow.unit == unit,
+            SessionRow.status == "completed",
+            SessionRow.ai_assisted.is_(False),
+        )
         .order_by(SessionRow.completed_at, SessionRow.session_id)
         .all()
     )

@@ -79,9 +79,14 @@ export function sessionHistoryRows(history: SessionHistoryItem[]): string {
     .map((item) => {
       const verdict = verdictFor(item.final_score);
       const when = item.completed_at ? item.completed_at.slice(0, 16).replace("T", " ") : "—";
+      // AI-assisted sessions stay visible in the trainee's own history, but the
+      // badge makes clear the score describes the assistant's run.
+      const badge = item.ai_assisted
+        ? ` <span class="dash-chip is-assisted">ASSISTED</span>`
+        : "";
       return `<tr>
         <td class="aar-num">${when}</td>
-        <td>${item.scenario_id}</td>
+        <td>${item.scenario_id}${badge}</td>
         <td>${item.environment.toUpperCase()} / ${item.time_of_day.toUpperCase()}</td>
         <td class="aar-num">${item.difficulty}</td>
         <td class="aar-num">${item.threat_count}</td>
@@ -148,17 +153,24 @@ export function buildDashboardHtml(
   loading: boolean,
   errors: string[],
 ): string {
-  const latest = history[0];
-  const best = history.reduce(
-    (acc, item) => (item.final_score > acc ? item.final_score : acc), 0);
-  const mean = history.length === 0
+  // Score headline and trend cover scored sessions only: assisted sessions
+  // are excluded from competency rollups server-side, so the dashboard's own
+  // numbers must agree. They remain listed in the history table below with
+  // their ASSISTED badge.
+  const scored = history.filter((item) => !item.ai_assisted);
+  const assistedCount = history.length - scored.length;
+  const latest = scored[0];
+  const best = scored.length === 0
     ? null
-    : history.reduce((sum, item) => sum + item.final_score, 0) / history.length;
+    : scored.reduce((acc, item) => (item.final_score > acc ? item.final_score : acc), 0);
+  const mean = scored.length === 0
+    ? null
+    : scored.reduce((sum, item) => sum + item.final_score, 0) / scored.length;
   const headline: Array<[string, string]> = [
     ["Latest", latest ? String(latest.final_score) : "—"],
     ["Mean", metric(mean)],
-    ["Best", String(best)],
-    ["Sessions", String(history.length)],
+    ["Best", best === null ? "—" : String(best)],
+    ["Sessions", String(scored.length)],
   ];
   return `
     <h2>Performance</h2>
@@ -175,7 +187,9 @@ export function buildDashboardHtml(
 
     <section class="aar-card dash-trend">
       <h3>Score trend</h3>
-      ${trendSparkline(history)}
+      ${scored.length === 0 && history.length > 0
+        ? `<div class="dash-empty">No scored sessions yet.</div>`
+        : trendSparkline(scored)}
     </section>
 
     <section class="aar-card">
@@ -185,6 +199,11 @@ export function buildDashboardHtml(
             <th>diff</th><th>contacts</th><th>score</th></tr>
         ${sessionHistoryRows(history)}
       </table>
+      ${assistedCount > 0
+        ? `<p class="aar-meta">${assistedCount} AI-assisted session${
+          assistedCount === 1 ? "" : "s"
+        } labelled and excluded from the score trend and rollups.</p>`
+        : ""}
     </section>
 
     ${unitSummaryBlock(unitPerformance)}

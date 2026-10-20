@@ -53,11 +53,16 @@ Session
 - id
 - trainee_id
 - scenario_id
+- ai_assisted
 - started_at
 - completed_at
 - score
 - status
 ```
+
+`ai_assisted` labels the optional demonstration mode. Labelled sessions are
+listed in trainee history but excluded from adaptive and unit rollups; see
+`docs/modules/ai_assisted_mode.md`.
 
 ## 5. Scenario model
 

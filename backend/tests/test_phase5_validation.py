@@ -137,6 +137,7 @@ def test_generator_covers_all_contract_dimensions() -> None:
                 visibility=scenario.visibility,
                 sensor_quality=scenario.sensor_quality,
                 duration_seconds=scenario.duration_seconds,
+                threats=scenario.threats,
             ) == difficulty
 
     # Across the sweep every visibility tier and sensor bin appears.

@@ -55,5 +55,36 @@ AI should support:
 - scenario generation
 - adaptive difficulty
 - performance analysis
+- an optional, labelled decision assistant for demonstration
 
 AI should not be used to create operational engagement instructions.
+
+## AI-assisted training mode
+
+The optional AI-assisted mode automates the training loop
+(`detect -> classify -> respond`) inside the simulator only.
+
+Its boundaries:
+
+- The assistant is fed public, trainee-visible evidence only. It never reads
+  the scenario's hidden label or expected response, so it cannot leak the
+  answer key into the session record.
+- Output is restricted to the existing abstract vocabulary: five classification
+  labels and four expected responses. No free text reaches the trainee.
+- Decisions still pass through the same session gates as a trainee's clicks,
+  are recorded with assist provenance, and are labelled in the After Action
+  Review.
+- Assisted sessions are excluded from competency scoring, adaptive level, and
+  unit rollups. They remain visible in the trainee's own history with an
+  ASSISTED badge.
+- The assistant may orient the simulated sensor (mast slew or simulated
+  airframe autopilot) to obtain a visual track. That is simulation navigation,
+  not control of any real system.
+- Approval of a simulated measure is automatic in this mode, as a documented
+  demonstration exception to the otherwise explicit-approval rule. The measure
+  is abstract and simulated; nothing is executed, and no targeting, firing,
+  interception, or pursuit is implemented.
+
+The deterministic rule engine is the default and always available offline. The
+optional language-model path is configuration-gated (`AEROGUARD_LLM_*`) and any
+error, timeout, or out-of-vocabulary reply falls back to the rules.

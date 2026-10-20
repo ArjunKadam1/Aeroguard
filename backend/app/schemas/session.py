@@ -19,6 +19,10 @@ class SessionCreateRequest(BaseModel):
     # Optional unit/platoon grouping for cohort-level performance rollups
     # (SIH outcome: "individual/unit performance over repeated sessions").
     unit: str | None = None
+    # Opt-in AI-assisted mode: the decision assistant runs the detection,
+    # classification and response loop. Such sessions are labelled and
+    # excluded from competency rollups (docs/modules/ai_assisted_mode.md).
+    ai_assisted: bool = False
 
 
 class SessionHistoryItem(BaseModel):
@@ -27,6 +31,9 @@ class SessionHistoryItem(BaseModel):
     session_id: str
     scenario_id: str
     unit: str | None = None
+    # True when the session ran in AI-assisted mode. Display-only: excluded
+    # from adaptive and unit rollups, still listed in the trainee's history.
+    ai_assisted: bool = False
     completed_at: str | None = None
     final_score: float = Field(ge=0, le=100)
     environment: Environment

@@ -74,6 +74,11 @@ class ScenarioGenerateRequest(BaseModel):
     time_of_day: TimeOfDay
     threat_count: ThreatCount
     seed: int | None = None
+    # Opt-in grouping: when true, the generated contacts are partitioned into
+    # swarms that fly together. Off by default so every existing seed and
+    # golden scenario stays byte-identical. Grouping never changes the contact
+    # count or the difficulty model.
+    swarms: bool = False
 
 
 class ThreatProfile(BaseModel):
@@ -85,6 +90,11 @@ class ThreatProfile(BaseModel):
     speed_class: SpeedClass | None = None
     visibility_class: Visibility | None = None
     flight_pattern: FlightPattern | None = None
+    # Swarm membership (observable behavior, never an answer). Contacts sharing
+    # a swarm_id fly as one group; swarm_index 0 is the lead. Both fields are
+    # optional, so pre-swarm fixtures and persisted scenarios stay valid.
+    swarm_id: str | None = None
+    swarm_index: int | None = Field(default=None, ge=0)
 
 
 class Scenario(BaseModel):

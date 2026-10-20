@@ -116,6 +116,15 @@ def _counts(scenario: Scenario, events: list[EventCreateRequest]) -> tuple[int, 
     return detected, classified, responded
 
 
+def _motion_clause(threat: ThreatProfile) -> str:
+    """Observable flight context for a missed contact, from its assigned
+    pattern. Labels stay hidden; motion is trainee-visible evidence, so naming
+    the pattern explains *why* acquisition was hard without hinting the answer."""
+    if threat.flight_pattern is None:
+        return ""
+    return f" (flying {threat.flight_pattern.value})"
+
+
 def _mistakes(scenario: Scenario, events: list[EventCreateRequest]) -> list[Mistake]:
     mistakes: list[Mistake] = []
     for threat in scenario.threats:
@@ -126,7 +135,7 @@ def _mistakes(scenario: Scenario, events: list[EventCreateRequest]) -> list[Mist
                     kind=MistakeKind.missed_threat,
                     timestamp_ms=_spawn_ms(threat),
                     threat_id=threat.id,
-                    detail="no detection recorded",
+                    detail=f"no detection recorded{_motion_clause(threat)}",
                 )
             )
             continue

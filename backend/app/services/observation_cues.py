@@ -94,6 +94,8 @@ def build_public_scenario(scenario: Scenario) -> PublicScenario:
                 flight_pattern=threat.flight_pattern,
                 behavior=behavior,
                 cue_clear=clear,
+                swarm_id=threat.swarm_id,
+                swarm_index=threat.swarm_index,
             )
         )
     return PublicScenario(

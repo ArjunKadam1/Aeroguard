@@ -13,7 +13,7 @@ from app.services.observation_cues import (
 VALID_BEHAVIORS = set(BEHAVIOR_BY_LABEL.values()) | {INDETERMINATE}
 
 
-def _generate(client, seed: int, threat_count: int = 2) -> dict:
+def _generate(client, seed: int, threat_count: int = 2, swarms: bool = False) -> dict:
     response = client.post(
         "/api/v1/scenarios/generate",
         json={
@@ -22,6 +22,7 @@ def _generate(client, seed: int, threat_count: int = 2) -> dict:
             "time_of_day": "day",
             "threat_count": threat_count,
             "seed": seed,
+            "swarms": swarms,
         },
     )
     assert response.status_code == 200
@@ -38,7 +39,7 @@ def test_view_never_contains_answers(client) -> None:
     for threat in view["threats"]:
         assert set(threat.keys()) == {
             "id", "spawn_time", "speed_class", "visibility_class",
-            "flight_pattern", "behavior", "cue_clear",
+            "flight_pattern", "behavior", "cue_clear", "swarm_id", "swarm_index",
         }
     assert set(view.keys()) == {
         "scenario_id", "seed", "observation_version", "difficulty",
@@ -57,6 +58,29 @@ def test_view_is_deterministic_for_same_scenario(client) -> None:
 def test_view_unknown_scenario_is_404(client) -> None:
     response = client.get("/api/v1/scenarios/SCN-000000/view")
     assert response.status_code == 404
+
+
+def test_view_defaults_swarm_membership_to_null(client) -> None:
+    scenario = _generate(client, seed=4242)
+    view = client.get(f"/api/v1/scenarios/{scenario['scenario_id']}/view").json()
+    assert all(
+        threat["swarm_id"] is None and threat["swarm_index"] is None
+        for threat in view["threats"]
+    )
+
+
+def test_view_carries_swarm_membership_without_answers(client) -> None:
+    scenario = _generate(client, seed=4242, threat_count=3, swarms=True)
+    view = client.get(f"/api/v1/scenarios/{scenario['scenario_id']}/view").json()
+    assert "classification_label" not in str(view)
+    assert "expected_response" not in str(view)
+    members = [threat for threat in view["threats"] if threat["swarm_id"]]
+    assert members, "swarms=True must yield a group for a three-contact scenario"
+    assert sorted(threat["swarm_index"] for threat in members) == list(
+        range(len(members))
+    )
+    assert len({threat["spawn_time"] for threat in members}) == 1
+    assert len({threat["flight_pattern"] for threat in members}) == 1
 
 
 def test_perfect_conditions_read_every_signature() -> None:

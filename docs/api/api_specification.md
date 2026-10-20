@@ -50,9 +50,15 @@ Use Pydantic models for request/response validation.
 ```json
 {
   "trainee_id": "TRAIN-001",
-  "scenario_id": "SCN-100"
+  "scenario_id": "SCN-100",
+  "unit": "ALPHA-1",
+  "ai_assisted": false
 }
 ```
+
+`ai_assisted` is optional and defaults to `false`. When true, the session is
+labelled as an AI-assisted demonstration and excluded from competency rollups;
+it still appears in the trainee's session history.
 
 ## 4. Submit event
 
@@ -131,7 +137,42 @@ Output:
 }
 ```
 
-## 9. API rules
+## 9. AI decision assistant
+
+`POST /assist/decide`
+
+Optional support for the labelled AI-assisted training mode. The request carries
+public observable evidence only (stage, behavior signature, flight pattern, speed
+class, sensor source, formation flag, and the assessment already submitted); it
+never carries the hidden label or expected response.
+
+```json
+{
+  "stage": "classify",
+  "behavior": "orbiting",
+  "cue_clear": true,
+  "flight_pattern": "orbit-hold",
+  "speed_class": "medium",
+  "observed_via": "visual",
+  "swarm": false
+}
+```
+
+```json
+{
+  "stage": "classify",
+  "decision": "suspicious",
+  "source": "rules"
+}
+```
+
+`source` is `rules` for the deterministic offline engine and `llm` when a
+configured OpenAI-compatible model answered. Any failure or out-of-vocabulary
+reply falls back to the rules. A `respond` request additionally requires
+`classification`, so the response doctrine follows the assessment actually
+submitted. See `docs/modules/ai_assisted_mode.md`.
+
+## 10. API rules
 
 - validate every request
 - reject unknown enum values

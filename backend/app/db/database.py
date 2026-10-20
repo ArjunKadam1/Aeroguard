@@ -51,13 +51,21 @@ def _migrate(engine: Engine) -> None:
         return
 
     existing = {column["name"] for column in inspector.get_columns("sessions")}
-    if "unit" in existing:
-        return
-
-    # SQLite ADD COLUMN is cheap and preserves existing rows; the new column is
-    # nullable so every existing row stays valid.
+    # Each additive column is applied independently, so a database that
+    # already has one but not the other still gets the missing one.
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE sessions ADD COLUMN unit VARCHAR"))
+        if "unit" not in existing:
+            # SQLite ADD COLUMN is cheap and preserves existing rows; the new
+            # column is nullable so every existing row stays valid.
+            connection.execute(text("ALTER TABLE sessions ADD COLUMN unit VARCHAR"))
+        if "ai_assisted" not in existing:
+            # NOT NULL needs a default for existing rows; 0 keeps them manual.
+            connection.execute(
+                text(
+                    "ALTER TABLE sessions ADD COLUMN ai_assisted BOOLEAN "
+                    "NOT NULL DEFAULT 0"
+                )
+            )
 
 
 def init_db() -> None:

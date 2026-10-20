@@ -87,5 +87,39 @@ describe("createApiClient", () => {
     expect(url).toBe("/api/v1/scenarios/SCN-000001/view");
     expect(init.method).toBe("GET");
   });
+
+  it("POSTs an assistant decision request with public evidence", async () => {
+    const decision = { stage: "classify", decision: "suspicious", source: "rules" };
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(decision));
+    const api = createApiClient("/api/v1", fetchFn as unknown as typeof fetch);
+
+    const result = await api.assistDecide({
+      stage: "classify", behavior: "orbiting", cue_clear: true, observed_via: "visual",
+    });
+
+    expect(result).toEqual(decision);
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe("/api/v1/assist/decide");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toMatchObject({
+      stage: "classify", behavior: "orbiting", cue_clear: true,
+    });
+    // Public evidence only: the request must never carry an answer.
+    expect(JSON.parse(init.body)).not.toHaveProperty("classification_label");
+    expect(JSON.parse(init.body)).not.toHaveProperty("expected_response");
+  });
+
+  it("sends the ai_assisted flag with the session create request", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      jsonResponse({ session_id: "SES-1", status: "active" }),
+    );
+    const api = createApiClient("/api/v1", fetchFn as unknown as typeof fetch);
+
+    await api.createSession({
+      trainee_id: "TRAIN-001", scenario_id: "SCN-000001", ai_assisted: true,
+    });
+
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toMatchObject({ ai_assisted: true });
+  });
 });
 

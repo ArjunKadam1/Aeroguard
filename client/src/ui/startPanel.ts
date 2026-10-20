@@ -10,8 +10,11 @@ const THREAT_COUNTS: ThreatCount[] = [1, 2, 3, 5];
 // Mirrors the additive difficulty model in
 // backend/app/services/scenario_generator.py. Difficulty is an exact target:
 //   difficulty = BASE(1) + threat + environment + time_of_day + residual(0..6)
-// so some combinations are unreachable and the API answers 422. The client
-// computes the same floor so the form can explain it instead of failing.
+// where the residual splits into conditions plus the motion cost of demanding
+// flight patterns. Motion is never negative, so this floor stays a valid
+// lower bound; some combinations are unreachable and the API answers 422.
+// The client computes the same floor so the form can explain it instead of
+// failing.
 const BASE_DIFFICULTY = 1;
 const THREAT_FACTOR: Record<ThreatCount, number> = { 1: 0, 2: 1, 3: 2, 5: 4 };
 const ENVIRONMENT_FACTOR: Record<Environment, number> = { urban: 1, rural: 0 };
@@ -47,6 +50,25 @@ export const MODE_HINT: Record<OperatorMode, string> = {
   airborne: "Fly the airframe and identify contacts from the air.",
 };
 
+// Operator assistance. Manual is the scored training loop. AI-assisted is a
+// labelled demonstration mode: the assistant runs detect, classify and respond
+// from observable evidence, so the session is excluded from competency
+// scoring (docs/modules/ai_assisted_mode.md).
+export type AssistMode = "manual" | "assisted";
+
+export const ASSIST_MODES: AssistMode[] = ["manual", "assisted"];
+
+export const ASSIST_LABEL: Record<AssistMode, string> = {
+  manual: "MANUAL",
+  assisted: "AI-ASSISTED",
+};
+
+export const ASSIST_HINT: Record<AssistMode, string> = {
+  manual: "You make every detection, classification and response decision.",
+  assisted: "The assistant runs the loop from sensor evidence. The session is labelled "
+    + "and excluded from competency scoring.",
+};
+
 export const SOURCES: ScenarioSource[] = ["procedural", "scripted"];
 
 export const SOURCE_LABEL: Record<ScenarioSource, string> = {
@@ -58,6 +80,8 @@ export interface StartPanelState {
   traineeId: string;
   unit: string;
   mode: OperatorMode;
+  /** Operator assistance: manual (scored) or AI-assisted (labelled demo). */
+  assist: AssistMode;
   source: ScenarioSource;
   scenarioKey: string;
   /** Null while the fixture catalog is loading; error text on failure. */
@@ -67,6 +91,8 @@ export interface StartPanelState {
   environment: Environment;
   timeOfDay: TimeOfDay;
   threatCount: ThreatCount;
+  /** Opt-in grouping: generated contacts fly as formations. */
+  swarms: boolean;
   seed: string;
   busy: boolean;
   error: string | null;
@@ -90,6 +116,11 @@ export function buildStartPanelHtml(state: StartPanelState): string {
     .map((mode) =>
       `<button type="button" class="mode-btn${state.mode === mode ? " is-active" : ""}"
          data-mode="${mode}">${MODE_LABEL[mode]}</button>`)
+    .join("");
+  const assistButtons = ASSIST_MODES
+    .map((assist) =>
+      `<button type="button" class="mode-btn${state.assist === assist ? " is-active" : ""}"
+         data-assist="${assist}">${ASSIST_LABEL[assist]}</button>`)
     .join("");
   const sourceButtons = SOURCES
     .map((source) =>
@@ -122,6 +153,14 @@ export function buildStartPanelHtml(state: StartPanelState): string {
             <span class="start-modetitle">Operator role</span>
             <div class="mode-row">${modeButtons}</div>
             <p class="start-modehint">${MODE_HINT[state.mode]}</p>
+          </div>
+
+          <div class="start-modes">
+            <span class="start-modetitle">Operator assistance</span>
+            <div class="mode-row">${assistButtons}</div>
+            <p class="start-modehint is-assist-hint${state.assist === "assisted" ? " is-assisted" : ""}">${
+              ASSIST_HINT[state.assist]
+            }</p>
           </div>
 
           <div class="start-modes">
@@ -228,6 +267,11 @@ function proceduralGrid(
         <span>Seed <em class="start-hint">blank = random</em></span>
         <input id="seed" name="seed" type="number" value="${state.seed}" />
       </label>
+
+      <label class="start-field">
+        <span>Swarms <em class="start-hint">contacts fly in formations</em></span>
+        <input id="swarms" name="swarms" type="checkbox"${state.swarms ? " checked" : ""} />
+      </label>
     </div>
 
     <div class="start-briefing${tooLow ? " is-warn" : ""}">
@@ -254,6 +298,7 @@ export function parseStartForm(raw: Record<string, string>): {
   const timeOfDay = (raw.time_of_day ?? "day") as TimeOfDay;
   const threatCount = Number(raw.threat_count ?? 1) as ThreatCount;
   const difficulty = Number(raw.difficulty);
+  const swarms = raw.swarms === "true" || raw.swarms === "on";
   const floor = minimumDifficulty(environment, timeOfDay, threatCount);
 
   if (!Number.isFinite(difficulty) || difficulty < floor || difficulty > 10) {
@@ -261,6 +306,7 @@ export function parseStartForm(raw: Record<string, string>): {
       request: {
         difficulty: Math.max(1, Math.min(10, difficulty || 1)),
         environment, time_of_day: timeOfDay, threat_count: threatCount, seed: null,
+        swarms,
       },
       traineeId: raw.trainee_id ?? "TRAIN-001",
       error: `Difficulty must be between ${floor} and 10 for this setup. `
@@ -275,6 +321,7 @@ export function parseStartForm(raw: Record<string, string>): {
       time_of_day: timeOfDay,
       threat_count: threatCount,
       seed: seedRaw === "" ? null : Number(seedRaw),
+      swarms,
     },
     traineeId: (raw.trainee_id ?? "TRAIN-001").trim() || "TRAIN-001",
     error: null,
@@ -288,6 +335,8 @@ export function createStartPanelState(): StartPanelState {
     // Ground station is the default: it is the role the problem statement
     // describes, so it is what a judge sees first.
     mode: "station",
+    // Manual is the scored training loop; assistance is always opt-in.
+    assist: "manual",
     source: "procedural",
     scenarioKey: "",
     scriptedOptions: null,
@@ -296,6 +345,7 @@ export function createStartPanelState(): StartPanelState {
     environment: "urban",
     timeOfDay: "day",
     threatCount: 2,
+    swarms: false,
     seed: "",
     busy: false,
     error: null,
@@ -306,6 +356,7 @@ export function mountStartPanel(
   root: HTMLElement,
   onStart: (
     req: StartRequest, traineeId: string, unit: string | null, mode: OperatorMode,
+    assist: AssistMode,
   ) => void,
   onPerformance?: (traineeId: string, unit: string | null) => void,
   listScripted?: () => Promise<ScriptedScenarioSummary[]>,
@@ -334,11 +385,40 @@ export function mountStartPanel(
       });
     }
     panel.querySelector<HTMLFormElement>("#start-form")?.addEventListener("submit", onSubmit);
+    // The checkbox tracks state without rebuilding the form, so toggling it
+    // never steals focus from the fields above.
+    panel.querySelector<HTMLInputElement>("#swarms")?.addEventListener("change", () => {
+      state = {
+        ...state,
+        swarms: panel.querySelector<HTMLInputElement>("#swarms")?.checked ?? false,
+      };
+    });
     // Mode buttons switch the operator role; scoring is identical either way.
     for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-mode]")) {
       button.addEventListener("click", () => {
         state = { ...state, mode: button.dataset.mode as OperatorMode, error: null };
         render();
+      });
+    }
+    // Assistance buttons switch between the scored loop and the labelled
+    // demonstration mode. Update in place instead of re-rendering: switching
+    // mode must not discard fields the operator has already typed.
+    for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-assist]")) {
+      button.addEventListener("click", () => {
+        state = { ...state, assist: button.dataset.assist as AssistMode, error: null };
+        for (const other of panel.querySelectorAll<HTMLButtonElement>("[data-assist]")) {
+          other.classList.toggle("is-active", other === button);
+        }
+        const hint = panel.querySelector<HTMLElement>(".is-assist-hint");
+        if (hint) {
+          hint.textContent = ASSIST_HINT[state.assist];
+          hint.classList.toggle("is-assisted", state.assist === "assisted");
+        }
+        const errorBox = panel.querySelector<HTMLElement>(".start-error");
+        if (errorBox) {
+          errorBox.hidden = true;
+          errorBox.textContent = "";
+        }
       });
     }
     // Source buttons switch between generated and instructor-authored scenarios.
@@ -392,7 +472,7 @@ export function mountStartPanel(
           generate: { difficulty: 1, environment: "rural", time_of_day: "day", threat_count: 1, seed: null },
           scenarioKey,
         },
-        identity.traineeId, identity.unit, state.mode,
+        identity.traineeId, identity.unit, state.mode, state.assist,
       );
       return;
     }
@@ -400,6 +480,7 @@ export function mountStartPanel(
     for (const id of ["trainee_id", "unit", "environment", "time_of_day", "threat_count", "difficulty", "seed"]) {
       raw[id] = readValue(id);
     }
+    raw.swarms = panel.querySelector<HTMLInputElement>("#swarms")?.checked ? "true" : "";
     const { request, traineeId, error } = parseStartForm(raw);
     if (error) {
       state = { ...state, error };
@@ -408,7 +489,10 @@ export function mountStartPanel(
     }
     state = { ...state, error: null };
     render();
-    onStart({ source: "procedural", generate: request, scenarioKey: "" }, traineeId, identity.unit, state.mode);
+    onStart(
+      { source: "procedural", generate: request, scenarioKey: "" },
+      traineeId, identity.unit, state.mode, state.assist,
+    );
   }
 
   // The fixture catalog loads lazily so a backend hiccup cannot block the

@@ -14,6 +14,7 @@ EXPECTED_PATHS = {
     "/api/v1/sessions/{session_id}/aar",
     "/api/v1/trainees/{trainee_id}/performance",
     "/api/v1/training/recommend",
+    "/api/v1/assist/decide",
 }
 
 EXPECTED_SCHEMAS = {
@@ -28,6 +29,8 @@ EXPECTED_SCHEMAS = {
     "SessionCreated",
     "EventCreateRequest",
     "EventCreated",
+    "AssistRequest",
+    "AssistDecision",
     "CompleteResponse",
     "ScoreResult",
     "TimingMetrics",

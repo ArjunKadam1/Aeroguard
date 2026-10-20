@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  PATTERN_ACQUIRE,
   RADAR_CONFIRM_HITS,
   SCOUT_RADAR_RANGE,
   SCOUT_VISUAL_RANGE,
+  TRACK_BEARING_RATE_LIMIT,
   TRACK_MAX_STALE_TICKS,
+  acquireModifier,
   bearingDegOf,
   detectRadar,
   detectVisual,
   falseDetections,
   observeContact,
+  radarDetectionProbability,
   radarTick,
+  rcsClassForId,
   roll01,
   scoutObserver,
   stationObserver,
@@ -27,7 +32,7 @@ const PERFECT: SensorConditions = { sensorQuality: 1, night: false, visibility: 
 const DEAD: SensorConditions = { sensorQuality: 0, night: true, visibility: "poor" };
 
 function truth(id: string, x: number, y: number, z: number): ContactTruth {
-  return { id, position: { x, y, z }, spawned: true };
+  return { id, position: { x, y, z }, spawned: true, pattern: null };
 }
 
 function det(id: string): Detection {
@@ -106,7 +111,7 @@ describe("observeContact", () => {
   const station = stationObserver(0);
 
   it("reports nothing for unspawned contacts", () => {
-    const contact: ContactTruth = { id: "T01", position: { x: -10, y: 45, z: 0 }, spawned: false };
+    const contact: ContactTruth = { id: "T01", position: { x: -10, y: 45, z: 0 }, spawned: false, pattern: null };
     expect(observeContact(station, contact, PERFECT, 7, 0)).toMatchObject({
       id: "T01", visual: false, radar: false,
     });
@@ -158,7 +163,13 @@ describe("observeContact", () => {
     expect(obs.radar).toBe(true);
   });
 
-  it("loses radar beyond range", () => {
+  it("leaves corridor and pattern-less contacts exactly as before", () => {
+    const station = stationObserver(0);
+    for (const pattern of ["straight-transit", "direct-approach", "orbit-hold", null] as const) {
+      const contact: ContactTruth = { ...truth("T01", -10, 45, 0), pattern };
+      expect(observeContact(station, contact, PERFECT, 7, 0).visual).toBe(true);
+    }
+  });  it("loses radar beyond range", () => {
     const scout = scoutObserver({ x: 0, y: 100, z: 0 }, { x: 0, y: 0, z: -1 });
     const far = truth("T01", 0, 100, -(SCOUT_RADAR_RANGE + 50));
     expect(observeContact(scout, far, PERFECT, 7, 3).radar).toBe(false);
@@ -321,5 +332,154 @@ describe("falseDetections", () => {
       }
     }
     expect(differs).toBe(true);
+  });
+});
+
+describe("pattern acquisition difficulty", () => {
+  const station = stationObserver(0);
+
+  it("covers every known pattern with a bounded multiplier", () => {
+    expect(Object.keys(PATTERN_ACQUIRE)).toHaveLength(7);
+    for (const value of Object.values(PATTERN_ACQUIRE)) {
+      expect(value).toBeGreaterThan(0);
+      expect(value).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("treats missing or unknown patterns as neutral", () => {
+    expect(acquireModifier(null)).toBe(1);
+    expect(acquireModifier(undefined)).toBe(1);
+    expect(acquireModifier("warp-drive")).toBe(1);
+  });
+
+  it("ranks agile patterns strictly harder than steady ones", () => {
+    expect(acquireModifier("erratic-jink")).toBeLessThan(acquireModifier("wide-weave"));
+    expect(acquireModifier("wide-weave")).toBeLessThan(acquireModifier("straight-transit"));
+    expect(acquireModifier("straight-transit")).toBe(1);
+  });
+
+  it("drops agile contacts intermittently even under perfect conditions", () => {
+    const contact: ContactTruth = { ...truth("T01", -10, 45, 0), pattern: "erratic-jink" };
+    let seen = 0;
+    for (let tick = 0; tick < 40; tick += 1) {
+      if (observeContact(station, contact, PERFECT, 7, tick).visual) seen += 1;
+    }
+    // p = 0.65 per tick: must miss some ticks but hold most of them.
+    expect(seen).toBeGreaterThan(10);
+    expect(seen).toBeLessThan(40);
+  });
+
+  it("leaves radar acquisition pattern-independent", () => {
+    const scout = scoutObserver({ x: 0, y: 100, z: 0 }, { x: 0, y: 0, z: -1 });
+    const behind: ContactTruth = { ...truth("T01", 0, 100, 100), pattern: "erratic-jink" };
+    // Same seeded roll as the unpatterned case: radar ignores the modifier.
+    expect(observeContact(scout, behind, PERFECT, 7, 3).radar).toBe(true);
+  });
+});
+
+describe("radar equation", () => {
+  it("assigns RCS classes by id hash, covering every class", () => {
+    expect(rcsClassForId("T01")).toBe(rcsClassForId("T01"));
+    const classes = new Set(Array.from({ length: 200 }, (_, i) => rcsClassForId(`T${i}`)));
+    expect(classes).toEqual(new Set(["small", "medium", "large"]));
+  });
+
+  it("scales the detectability knee with the RCS class", () => {
+    expect(radarDetectionProbability(400, "small", PERFECT))
+      .toBeLessThan(radarDetectionProbability(400, "medium", PERFECT));
+    expect(radarDetectionProbability(400, "medium", PERFECT))
+      .toBeLessThan(radarDetectionProbability(400, "large", PERFECT));
+  });
+
+  it("matches the R^-4 falloff curve at unit pressure", () => {
+    // Absolute calibration pins: at full quality, clear weather, the medium
+    // class sits exactly on 1/(1 + (R/600)^4). A drifting pressure term (or a
+    // missing clamp) shifts these and fails here.
+    expect(radarDetectionProbability(100, "medium", PERFECT))
+      .toBeCloseTo(1 / (1 + (100 / 600) ** 4), 6);
+    expect(radarDetectionProbability(400, "medium", PERFECT))
+      .toBeCloseTo(1 / (1 + (400 / 600) ** 4), 6);
+    const close = radarDetectionProbability(100, "medium", PERFECT);
+    const far = radarDetectionProbability(400, "medium", PERFECT);
+    expect(close).toBeGreaterThan(0.95);
+    expect(far).toBeGreaterThan(0.5);
+    expect(far).toBeLessThan(close);
+  });
+
+  it("is attenuated by weather but never by night", () => {
+    const base: SensorConditions = { sensorQuality: 1, night: false, visibility: "clear" };
+    const clear = radarDetectionProbability(300, "medium", base);
+    const reduced = radarDetectionProbability(300, "medium", { ...base, visibility: "reduced" });
+    const poor = radarDetectionProbability(300, "medium", { ...base, visibility: "poor" });
+    const night = radarDetectionProbability(300, "medium", { ...base, night: true });
+    expect(reduced).toBeLessThan(clear);
+    expect(poor).toBeLessThan(reduced);
+    expect(night).toBe(clear);
+  });
+
+  it("is zero for a dead system at any range or class", () => {
+    for (const cls of ["small", "medium", "large"] as const) {
+      expect(radarDetectionProbability(50, cls, DEAD)).toBe(0);
+    }
+  });
+});
+
+describe("urban radar clutter", () => {
+  it("adds ghost returns in urban environments", () => {
+    const base: SensorConditions = { sensorQuality: 0.2, night: false, visibility: "clear" };
+    let rural = 0;
+    let urban = 0;
+    for (let sweep = 0; sweep < 60; sweep += 1) {
+      rural += falseDetections(7, sweep, base).length;
+      urban += falseDetections(7, sweep, { ...base, environment: "urban" }).length;
+    }
+    expect(urban).toBeGreaterThan(rural);
+  });
+});
+
+describe("tracker filtering", () => {
+  // The target crosses 5 deg and 2.5u per 0.5s tick: 10 deg/s and -5 u/s.
+  function movingDet(tick: number): Detection {
+    return { id: "T01", bearingDeg: 90 + 5 * tick, range: 200 - 2.5 * tick };
+  }
+
+  it("estimates bearing and range rates from successive fixes", () => {
+    let tracks: Track[] = [];
+    for (let tick = 0; tick < 6; tick += 1) {
+      tracks = updateTracks(tracks, [movingDet(tick)], [], tick);
+    }
+    const [t] = tracks;
+    expect(t.bearingRate ?? 0).toBeGreaterThan(7);
+    expect(t.bearingRate ?? 0).toBeLessThan(14);
+    expect(t.rangeRate ?? 0).toBeLessThan(-3.5);
+    expect(t.rangeRate ?? 0).toBeGreaterThan(-12);
+  });
+
+  it("extrapolates a coasting track along its estimated rates", () => {
+    let tracks: Track[] = [];
+    tracks = updateTracks(tracks, [movingDet(0)], [], 0);
+    tracks = updateTracks(tracks, [movingDet(1)], [], 1);
+    const before = tracks[0];
+    const coasted = updateTracks(tracks, [], [], 2);
+    expect(coasted).toHaveLength(1);
+    expect(coasted[0].lastTick).toBe(1); // still a coast
+    expect(coasted[0].bearingDeg).toBeGreaterThan(before.bearingDeg);
+    expect(coasted[0].range).toBeLessThan(before.range);
+  });
+
+  it("leaves a single-fix coast exactly on the last fix", () => {
+    const first = updateTracks([], [det("T01")], [], 0);
+    const coasted = updateTracks(first, [], [], 3);
+    expect(coasted[0]).toMatchObject({ bearingDeg: 90, range: 200 });
+  });
+
+  it("clamps rates under wild measurement swings", () => {
+    let tracks: Track[] = [];
+    for (let tick = 0; tick < 12; tick += 1) {
+      const bearingDeg = tick % 2 === 0 ? 0 : 180;
+      tracks = updateTracks(tracks, [{ id: "T01", bearingDeg, range: 200 }], [], tick);
+    }
+    expect(Math.abs(tracks[0].bearingRate ?? 0))
+      .toBeLessThanOrEqual(TRACK_BEARING_RATE_LIMIT + 1e-9);
   });
 });

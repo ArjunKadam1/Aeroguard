@@ -2,6 +2,10 @@ import type {
   AAR, EventCreateRequest, PerformanceProfile, RecommendResponse,
 } from "../api/types";
 import { SCORING_MAXIMA } from "../api/types";
+import { RESPONSE_WORKFLOW_KEY } from "../sim/response";
+import {
+  decisionAssistSplit, responseClassCounts, responseModeSplit, type StageDecisionSplit,
+} from "./metrics";
 
 // Render helpers are pure string builders so they can be unit-tested under the
 // node test environment, matching the pattern used elsewhere in this client.
@@ -57,6 +61,8 @@ export interface SessionHeader {
   durationSeconds: number;
   threatCount: number;
   unit: string | null;
+  /** True when the session ran in AI-assisted mode. */
+  assisted?: boolean;
 }
 
 function sessionHeaderHtml(header: SessionHeader): string {
@@ -69,6 +75,21 @@ function sessionHeaderHtml(header: SessionHeader): string {
     <span>difficulty ${header.difficulty}</span>
     <span>${header.threatCount} contact${header.threatCount === 1 ? "" : "s"}</span>
     <span>${clock}</span>
+    ${header.assisted ? `<span class="aar-chip is-assisted">AI-ASSISTED</span>` : ""}
+  </div>`;
+}
+
+/**
+ * Labelling banner for an AI-assisted session. The score is still computed
+ * and shown -- it describes what the assistant did -- but the session is
+ * excluded from competency rollups, and the review must say so.
+ */
+export function assistedBanner(header: SessionHeader | null): string {
+  if (!header?.assisted) return "";
+  return `<div class="aar-assisted" role="note">
+    <strong>AI-assisted session</strong>
+    <span>The decision assistant ran detection, classification and response from observable
+    sensor evidence. The session is labelled and excluded from competency scoring.</span>
   </div>`;
 }
 
@@ -110,6 +131,62 @@ export function scoreRows(aar: AAR): string {
 // being rank 4 in the project's own AAR hierarchy (docs/modules/ui_ux.md §7).
 // ---------------------------------------------------------------------------
 
+/**
+ * Response handling split (Manual vs Assisted), derived from the recorded
+ * timeline's aid provenance, plus the simulation classes that were requested.
+ * Compact on purpose: two counts and, only when they apply, one note about
+ * responses recorded before the provenance existed and one line for classes.
+ */
+export function responseModesBlock(aar: AAR): string {
+  const split = responseModeSplit(aar.timeline);
+  const classes = responseClassCounts(aar.timeline);
+  const total = split.manual + split.assisted + split.unrecorded;
+  const body = total === 0
+    ? `<p class="aar-empty">No responses recorded.</p>`
+    : `<div class="aar-modes">
+        <div class="aar-mode"><span>Manual</span><b>${split.manual}</b></div>
+        <div class="aar-mode is-assisted"><span>Assisted</span><b>${split.assisted}</b></div>
+      </div>`
+      + (split.unrecorded > 0
+        ? `<p class="aar-meta">${split.unrecorded} response${
+          split.unrecorded === 1 ? "" : "s"
+        } recorded before response-mode tracking.</p>`
+        : "");
+  const classesLine = classes.mitigation + classes.weaponClass === 0
+    ? ""
+    : `<p class="aar-meta">Simulations requested: mitigation ${classes.mitigation}`
+      + ` &middot; weapon-class ${classes.weaponClass}</p>`;
+  return `<section class="aar-card">
+    <h3>Response handling</h3>
+    ${body}
+    ${classesLine}
+  </section>`;
+}
+
+/**
+ * Per-stage assistant decision counts, shown only for an assisted session.
+ * Detection and classification decisions carry assist provenance only in
+ * assisted mode, so a manual session never renders this card.
+ */
+export function assistBlock(aar: AAR, header: SessionHeader | null): string {
+  if (!header?.assisted) return "";
+  const split = decisionAssistSplit(aar.timeline);
+  const row = (label: string, stage: StageDecisionSplit) =>
+    `<div class="aar-mode${stage.assisted > 0 ? " is-assisted" : ""}">`
+    + `<span>${label}</span><b>${stage.assisted}/${stage.total}</b></div>`;
+  return `<section class="aar-card">
+    <h3>Assistant decisions</h3>
+    <div class="aar-modes">
+      ${row("Detected", split.detect)}
+      ${row("Classified", split.classify)}
+      ${row("Responded", split.respond)}
+    </div>
+    <p class="aar-meta">Taken by the decision assistant from sensor evidence; recorded with assist
+    provenance and excluded from competency rollups. Simulated-measure outcomes follow scenario
+    conditions, not decision quality: the same scenario resolves identically in a manual session.</p>
+  </section>`;
+}
+
 const EVENT_LABEL: Record<string, string> = {
   SESSION_STARTED: "Session start",
   SCENARIO_LOADED: "Scenario loaded",
@@ -136,6 +213,33 @@ const EVENT_CLASS: Record<string, string> = {
   SESSION_COMPLETED: "ev-session",
 };
 
+// Simulated-response workflow records share the RESPONSE_SUBMITTED carrier
+// type with scored responses; the payload's workflow key tells them apart, and
+// the phase supplies the label. They are history, not decisions.
+const WORKFLOW_LABEL: Record<string, string> = {
+  proposal: "Simulation requested",
+  approved: "Simulation approved",
+  rejected: "Simulation rejected",
+  cancelled: "Simulation cancelled",
+  completed: "Simulation resolved",
+  invalid: "Simulation refused",
+};
+
+function workflowPhase(event: EventCreateRequest): string | null {
+  const payload = event.payload;
+  if (payload?.workflow !== RESPONSE_WORKFLOW_KEY) return null;
+  return typeof payload.phase === "string" ? payload.phase : "record";
+}
+
+function workflowDetail(event: EventCreateRequest): string {
+  const outcome = payloadString(event.payload, "outcome");
+  if (outcome) {
+    const cause = payloadString(event.payload, "cause");
+    return cause ? `${outcome} — ${cause}` : outcome;
+  }
+  return payloadString(event.payload, "measure") ?? "";
+}
+
 // Decision payloads carry what the trainee actually chose, which is the only
 // place the AAR shows expected-vs-chosen side by side. Detection events carry
 // sensor provenance (observer/sensor) plus when the contact first entered the
@@ -161,10 +265,14 @@ export function timelineRows(events: EventCreateRequest[]): string {
   const ordered = [...events].sort((a, b) => a.timestamp_ms - b.timestamp_ms);
   return ordered
     .map((event) => {
-      const cls = EVENT_CLASS[event.type] ?? "ev-session";
-      const label = EVENT_LABEL[event.type] ?? event.type;
-      const who = event.threat_id ?? "—";
-      const detail = decisionDetail(event);
+      const phase = workflowPhase(event);
+      const cls = phase ? "ev-sim" : EVENT_CLASS[event.type] ?? "ev-session";
+      const label = phase
+        ? WORKFLOW_LABEL[phase] ?? "Simulation record"
+        : EVENT_LABEL[event.type] ?? event.type;
+      const who = event.threat_id
+        ?? (phase ? payloadString(event.payload, "threat") ?? "—" : "—");
+      const detail = phase ? workflowDetail(event) : decisionDetail(event);
       return `<tr class="aar-ev ${cls}">`
         + `<td class="aar-num">${(event.timestamp_ms / 1000).toFixed(1)}s</td>`
         + `<td>${who}</td>`
@@ -475,6 +583,7 @@ export function buildAarHtml(
   return `
     <h2>After Action Review</h2>
     ${scoreHero(aar, header)}
+    ${assistedBanner(header)}
     ${errorBanner(errors)}
     ${loading ? `<p class="aar-loading">Loading full review from server…</p>` : ""}
     <div class="aar-grid">
@@ -483,6 +592,10 @@ export function buildAarHtml(
         <table class="aar-table">${scoreRows(aar)}</table>
         <p class="aar-meta">scenario ${aar.scenario_id} · scoring v${aar.scores.scoring_version}</p>
       </section>
+
+      ${assistBlock(aar, header)}
+
+      ${responseModesBlock(aar)}
 
       <section class="aar-card">
         <h3>Assessment</h3>
@@ -507,6 +620,10 @@ export function buildAarHtml(
       </section>
     </div>
     ${contactCardsBlock(aar)}
+    <section class="aar-card-wide">
+      <h3>Session replay</h3>
+      <div id="aar-replay"></div>
+    </section>
     ${timelineBlock(aar)}
     ${groundTruthBlock(aar)}
     ${performanceBlock(profile)}

@@ -98,6 +98,54 @@ describe("session history", () => {
   it("renders a dash when the completion time is unknown", () => {
     expect(sessionHistoryRows([item({ completed_at: null })])).toContain("—");
   });
+
+  it("badges assisted sessions in the history", () => {
+    const rows = sessionHistoryRows([item({ ai_assisted: true })]);
+    expect(rows).toContain("ASSISTED");
+    expect(sessionHistoryRows([item()])).not.toContain("ASSISTED");
+  });
+});
+
+describe("assisted session exclusion", () => {
+  const mixed = [
+    item({ final_score: 99, scenario_id: "SCN-ASSISTED", ai_assisted: true }),
+    item({ final_score: 80, scenario_id: "SCN-1" }),
+    item({ final_score: 70, scenario_id: "SCN-2" }),
+  ];
+
+  it("keeps assisted sessions out of the score headline", () => {
+    const html = buildDashboardHtml("T1", null, mixed, null, null, false, []);
+    // Latest/Sessions describe the two competency sessions: the assisted 99
+    // must not become the headline even though its row is listed below.
+    expect(html).toContain("<span>Latest</span><b>80</b>");
+    expect(html).toContain("<span>Sessions</span><b>2</b>");
+    expect(html).not.toContain("<span>Latest</span><b>99</b>");
+  });
+
+  it("keeps assisted sessions out of the score trend but in the history table", () => {
+    const html = buildDashboardHtml("T1", null, mixed, null, null, false, []);
+    expect((html.match(/dash-dot/g) ?? []).length).toBe(2);
+    expect(html).toContain("SCN-ASSISTED");
+    expect(html).toContain("ASSISTED");
+    expect(html).toContain("1 AI-assisted session labelled and excluded");
+  });
+
+  it("leaves a manual dashboard untouched", () => {
+    const html = buildDashboardHtml("T1", null, history, null, null, false, []);
+    expect(html).not.toContain("AI-assisted");
+    expect(html).toContain(">91<");
+  });
+
+  it("shows an empty scored state when every session was assisted", () => {
+    const html = buildDashboardHtml("T1", null, [
+      item({ final_score: 99, ai_assisted: true, scenario_id: "SCN-ASSISTED" }),
+    ], null, null, false, []);
+    expect(html).toContain("No scored sessions yet");
+    expect(html).toContain("SCN-ASSISTED");
+    expect(html).toContain("ASSISTED");
+    expect(html).toContain("<span>Sessions</span><b>0</b>");
+    expect(html).toContain("<span>Best</span><b>—</b>");
+  });
 });
 
 describe("unit rollup", () => {

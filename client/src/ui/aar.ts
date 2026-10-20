@@ -14,6 +14,7 @@ export function showAar(
   fallback: AAR,
   onAgain: () => void,
   unit: string | null = null,
+  assisted = false,
 ): void {
   const panel = document.createElement("div");
   panel.id = "aar-panel";
@@ -28,9 +29,11 @@ export function showAar(
     durationSeconds: scenario.duration_seconds,
     threatCount: scenario.threats.length,
     unit,
+    assisted,
   };
 
   let aar: AAR = fallback;
+  let replayMounted = false;
   let recommendation: RecommendResponse | null = null;
   let profile: PerformanceProfile | null = null;
   let loading = true;
@@ -40,6 +43,17 @@ export function showAar(
 
   function render(): void {
     panel.innerHTML = buildAarHtml(aar, recommendation, profile, loading, header, errors);
+    // The replay mounts once: its loop self-stops if unmounted, and later
+    // renders only refresh text while the same session's events stand.
+    if (!replayMounted) {
+      const slot = panel.querySelector<HTMLElement>("#aar-replay");
+      if (slot) {
+        void import("./replay").then(({ mountReplay }) => {
+          if (slot.isConnected) mountReplay(slot, scenario, aar.timeline);
+        });
+        replayMounted = true;
+      }
+    }
     panel.querySelector<HTMLButtonElement>("#again")?.addEventListener("click", () => {
       panel.remove();
       onAgain();

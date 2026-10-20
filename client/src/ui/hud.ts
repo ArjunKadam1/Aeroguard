@@ -49,6 +49,17 @@ export function threatDotColor(id: string): string {
   return DOT_COLORS[hashString(id) % DOT_COLORS.length];
 }
 
+/**
+ * Priority order for the contact list and keyboard cycling: unresolved
+ * contacts first in arrival order (the one longest in the picture is the most
+ * overdue), resolved contacts last. Stable, so contacts of equal rank keep
+ * their given order. Pure, so the ordering is testable without a DOM.
+ */
+export function prioritySorted(states: readonly HudThreatState[]): HudThreatState[] {
+  const rank = (stage: HudStage): number => (stage === "responded" ? 1 : 0);
+  return [...states].sort((a, b) => rank(a.stage) - rank(b.stage));
+}
+
 export function buildHudHtml(
   scenario: PublicScenario,
   threats: HudThreatState[],

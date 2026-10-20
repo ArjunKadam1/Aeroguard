@@ -49,6 +49,13 @@ Start with:
 
 The prototype does not need hundreds of simultaneous objects.
 
+Contacts can optionally be grouped into swarms (`swarms: true` on the generate
+request). A swarm is a partition of the requested contacts, never an extra
+count: 3 contacts become one group of three or a pair plus one independent
+contact; 5 become five, or three plus two. Members share identity, pattern,
+spawn time and speed, fly as one formation, and are still detected, classified,
+responded to and scored individually.
+
 ### Difficulty
 
 Integer 1–10.
@@ -67,11 +74,18 @@ Example:
   "expected_response": "report",
   "spawn_time": 18.4,
   "speed_class": "medium",
-  "visibility_class": "reduced"
+  "visibility_class": "reduced",
+  "swarm_id": "S01",
+  "swarm_index": 0
 }
 ```
 
 These labels are training abstractions.
+
+Swarm membership is observable behavior, not an answer: `swarm_id` groups
+contacts and `swarm_index` 0 marks the lead. Both fields are optional (null for
+an independent contact) and are echoed in the public view. A contact sets both
+or neither. Grouping is opt-in, so every existing seed stays byte-identical.
 
 ## 4. Seeded randomization
 
@@ -98,7 +112,19 @@ D = base
   + sensor_factor
   + timing_factor
   + distraction_factor
+  + motion_factor
 ```
+
+Motion prices demanding flight patterns (wide-weave, erratic-jink) into
+difficulty one-for-one against conditions: patterns are drawn within the
+residual budget, so feasibility never depends on the draw, and calm mixes
+keep byte-exact conditions. The client setup floor stays a valid lower bound
+because motion is never negative.
+
+Swarm grouping is deliberately absent from the formula. The group's most
+demanding pattern is assigned to every member before the residual condition
+split, so motion, conditions and the declared difficulty are identical to the
+ungrouped run of the same seed.
 
 Do not make difficulty a black box.
 
@@ -160,5 +186,23 @@ Before a scenario is released to the trainee, validate:
 - response labels valid
 - difficulty inside 1–10
 - sensor quality inside 0–1
+- swarm groups have at least two members
+- swarm indices are contiguous from 0 and unique inside their group
+- swarm members share label, response, flight pattern, spawn time and speed
+- a contact sets both swarm fields or neither
 
 Invalid scenarios must be rejected before gameplay.
+
+## 9. Swarm grouping and client flight
+
+Grouping uses a dedicated RNG stream (`swarm:<seed>`), so enabling it never
+disturbs the draws that visibility, sensor quality, duration, labels or spawn
+times come from. Group ids are assigned in index order; the lead is index 0.
+Every member keeps its own id, track, classification and scored response.
+
+The client builds membership only from the public scenario. The lead flies its
+normal path; each wingman rides a loose slot in the lead's local frame with a
+bounded, seeded wander. Slots keep members tens of units apart so each remains
+a distinct visual and sensor contact. Decorative escorts are suppressed for
+real members. The whole formation is a pure function of the public scenario, so
+replay stays bit-identical.

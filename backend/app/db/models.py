@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -71,6 +71,9 @@ class SessionRow(Base):
     # Optional cohort grouping. Nullable so existing rows stay valid and the
     # change stays additive.
     unit: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    # AI-assisted sessions are labelled and excluded from competency rollups
+    # (adaptive level, unit performance); their own history still lists them.
+    ai_assisted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

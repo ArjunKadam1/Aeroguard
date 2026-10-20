@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ScriptedScenarioSummary } from "../api/types";
 import {
+  ASSIST_HINT,
+  ASSIST_LABEL,
+  ASSIST_MODES,
   MODE_HINT,
   MODE_LABEL,
   OPERATOR_MODES,
@@ -39,6 +42,39 @@ describe("operator mode", () => {
 
   it("explains that the station role has no flight controls", () => {
     expect(buildStartPanelHtml(createStartPanelState())).toContain("No flight controls");
+  });
+});
+
+describe("operator assistance", () => {
+  it("defaults to manual, the scored training loop", () => {
+    expect(createStartPanelState().assist).toBe("manual");
+  });
+
+  it("offers both assistance modes with labels and hints", () => {
+    expect(ASSIST_MODES).toEqual(["manual", "assisted"]);
+    for (const mode of ASSIST_MODES) {
+      expect(ASSIST_LABEL[mode]).toBeTruthy();
+      expect(ASSIST_HINT[mode]).toBeTruthy();
+    }
+  });
+
+  it("renders both assistance buttons with manual active by default", () => {
+    const html = buildStartPanelHtml(createStartPanelState());
+    expect(html).toContain("Operator assistance");
+    expect(html).toContain("MANUAL");
+    expect(html).toContain("AI-ASSISTED");
+    expect(html).toMatch(/class="mode-btn is-active"[^>]*data-assist="manual"/);
+  });
+
+  it("marks AI-assisted active when selected", () => {
+    const html = buildStartPanelHtml({ ...createStartPanelState(), assist: "assisted" });
+    expect(html).toMatch(/class="mode-btn is-active"[^>]*data-assist="assisted"/);
+  });
+
+  it("states that an assisted session is labelled and excluded from competency scoring", () => {
+    const html = buildStartPanelHtml({ ...createStartPanelState(), assist: "assisted" });
+    expect(html).toContain(`class="start-modehint is-assist-hint is-assisted"`);
+    expect(html).toContain("excluded from competency scoring");
   });
 });
 
@@ -141,6 +177,12 @@ describe("parseStartForm", () => {
     expect(request.seed).toBeNull();
   });
 
+  it("treats swarms as opt-in and off by default", () => {
+    expect(parseStartForm(valid).request.swarms).toBe(false);
+    expect(parseStartForm({ ...valid, swarms: "true" }).request.swarms).toBe(true);
+    expect(parseStartForm({ ...valid, swarms: "on" }).request.swarms).toBe(true);
+  });
+
   it("rejects a difficulty below the floor instead of sending a 422", () => {
     const { error } = parseStartForm({ ...valid, time_of_day: "night", environment: "urban", threat_count: "5", difficulty: "3" });
     expect(error).toContain("between 8 and 10");
@@ -188,6 +230,15 @@ describe("buildStartPanelHtml", () => {
   it("renders an error banner only when there is an error", () => {
     expect(buildStartPanelHtml({ ...state, error: null })).toContain("hidden");
     expect(buildStartPanelHtml({ ...state, error: "boom" })).toContain("boom");
+  });
+
+  it("renders the opt-in swarm checkbox, unchecked by default", () => {
+    const html = buildStartPanelHtml(state);
+    expect(html).toContain('id="swarms"');
+    expect(html).toContain('name="swarms" type="checkbox"');
+    expect(html).not.toContain('type="checkbox" checked');
+    expect(buildStartPanelHtml({ ...state, swarms: true }))
+      .toContain('type="checkbox" checked');
   });
 
   it("disables the submit button while busy", () => {

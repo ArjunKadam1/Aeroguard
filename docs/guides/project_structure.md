@@ -18,6 +18,7 @@ Aeroguard/
 │   │   ├── scoring_engine.md
 │   │   ├── event_and_data_model.md
 │   │   ├── aar_and_adaptive_training.md
+│   │   ├── ai_assisted_mode.md
 │   │   ├── ai_implementation.md
 │   │   ├── unity_prototype.md
 │   │   ├── fastapi_backend.md

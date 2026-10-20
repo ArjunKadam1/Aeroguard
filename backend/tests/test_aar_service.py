@@ -75,6 +75,23 @@ def test_missed_threat_is_recorded() -> None:
     assert facts.timing.mean_time_to_detection_ms is None
 
 
+def test_missed_threat_names_the_flight_pattern() -> None:
+    scenario = _scenario({
+        "id": "T01", "classification_label": "hostile", "expected_response": "hold",
+        "spawn_time": 10.0, "speed_class": "fast", "flight_pattern": "erratic-jink",
+    })
+    facts = build_aar_facts("SES-TEST", scenario, [], _score(scenario, []))
+    assert len(facts.mistakes) == 1
+    assert facts.mistakes[0].detail == "no detection recorded (flying erratic-jink)"
+
+
+def test_missed_threat_without_pattern_has_no_clause() -> None:
+    scenario = _scenario(_HOSTILE)
+    facts = build_aar_facts("SES-TEST", scenario, [], _score(scenario, []))
+    assert len(facts.mistakes) == 1
+    assert facts.mistakes[0].detail == "no detection recorded"
+
+
 def test_false_alarm_and_wrong_classification_and_wrong_response() -> None:
     scenario = _scenario(
         {"id": "T01", "classification_label": "hostile", "expected_response": "hold",

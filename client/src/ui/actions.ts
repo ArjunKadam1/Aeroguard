@@ -40,6 +40,8 @@ export interface Actions {
   setEnabled(enabled: boolean): void;
   setStage(stage: HudStage): void;
   setNotice(message: string): void;
+  /** Clicks the nth enabled button of the active group; false when out of range. */
+  triggerSlot(index: number): boolean;
 }
 
 export function mountActions(root: HTMLElement, hooks: ActionHooks): Actions {
@@ -70,7 +72,8 @@ export function mountActions(root: HTMLElement, hooks: ActionHooks): Actions {
         <button data-action="finish">FINISH</button>
       </div>
     </div>
-    <div class="action-notice" role="status"></div>`;
+    <div class="action-notice" role="status"></div>
+    <div class="action-hint" aria-hidden="true">Keys: 1-5 stage actions &middot; Enter assistant &middot; Tab next contact</div>`;
   root.appendChild(element);
 
   const notice = element.querySelector<HTMLElement>(".action-notice")!;
@@ -126,6 +129,18 @@ export function mountActions(root: HTMLElement, hooks: ActionHooks): Actions {
     },
     setNotice: (message) => {
       notice.textContent = message;
+    },
+    triggerSlot: (index) => {
+      // Clicks the nth enabled button of the active group (detect: 1, classify:
+      // 1-5, respond: 1-4). Reusing the real buttons means a shortcut can never
+      // bypass a gate or drift from what the trainee could click by hand.
+      const buttons = element.querySelectorAll<HTMLButtonElement>(
+        ".action-group.is-active button:not(:disabled)",
+      );
+      const button = buttons[index];
+      if (button === undefined) return false;
+      button.click();
+      return true;
     },
   };
 }

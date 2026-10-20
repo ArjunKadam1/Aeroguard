@@ -1,6 +1,7 @@
 import type {
   ClassificationLabel, EventCreateRequest, EventType, ExpectedResponse,
 } from "../api/types";
+import type { ResponseWorkflowEventPayload } from "../sim/response";
 
 export interface EventOptions {
   threat_id?: string | null;
@@ -45,6 +46,15 @@ export const events = {
   }),
   threatResolved: (id: string, ts: number) =>
     buildEvent("THREAT_RESOLVED", ts, { threat_id: id }),
+  /**
+   * Simulated-response workflow record. Deliberately submitted with a null
+   * threat_id: the server accepts it without threat validation, scoring and
+   * per-threat AAR logic match events on threat_id so they never see it, and
+   * the payload carries the phase. The carrier type keeps the frozen v1 event
+   * contract; ui/responseAutomation labels these rows for the trainee.
+   */
+  responseWorkflow: (ts: number, payload: ResponseWorkflowEventPayload) =>
+    buildEvent("RESPONSE_SUBMITTED", ts, { payload: { ...payload } }),
   falseAlarm: (ts: number) => buildEvent("FALSE_ALARM", ts),
   sessionCompleted: (ts: number) => buildEvent("SESSION_COMPLETED", ts),
 };

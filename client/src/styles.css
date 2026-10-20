@@ -53,10 +53,24 @@ body { margin: 0; font-family: var(--font); background: var(--bg-0); color: var(
 .topbar-meta { font-size: 11px; letter-spacing: 0.06em; color: var(--dim); text-transform: uppercase;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar-meta b { color: var(--blue-hi); font-weight: 600; }
+/* AI-assisted sessions are labelled for the whole session, not just the AAR. */
+.topbar-assisted { color: var(--cyan); }
 #topbar .spacer { flex: 1; }
 .topbar-status { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap;
   padding: 5px 10px; border: 1px solid var(--line-soft); border-radius: 20px; background: var(--bg-0); }
 .topbar-status b { color: var(--txt); }
+/* Audio toggle: quiet ghost button, clearly pressed when sound is on. */
+.topbar-audio { min-height: 0; padding: 5px 10px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em; background: transparent; border: 1px solid var(--line-soft);
+  border-radius: 20px; color: var(--faint); white-space: nowrap; }
+.topbar-audio:hover:not(:disabled) { background: var(--bg-3); color: var(--txt); }
+.topbar-audio[aria-pressed="true"] { color: var(--green-hi); border-color: var(--green); }
+/* Automations toggle: same ghost treatment, green while the fast loop is on. */
+.topbar-auto { min-height: 0; padding: 5px 10px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em; background: transparent; border: 1px solid var(--line-soft);
+  border-radius: 20px; color: var(--faint); white-space: nowrap; }
+.topbar-auto:hover:not(:disabled) { background: var(--bg-3); color: var(--txt); }
+.topbar-auto[aria-pressed="true"] { color: var(--green-hi); border-color: var(--green); }
 #workbench { flex: 1; display: flex; min-height: 0; }
 #panel-left { flex: 0 0 304px; min-width: 0; overflow-y: auto; background: var(--bg-1);
   border-right: 1px solid var(--line); padding: var(--sp-3); }
@@ -119,6 +133,8 @@ body { margin: 0; font-family: var(--font); background: var(--bg-0); color: var(
 .action-group-secondary button { flex: 0 0 auto; }
 .action-notice { min-height: 16px; margin-top: 6px; font-size: 12px; color: var(--amber); }
 .action-notice:empty { margin-top: 0; display: none; }
+/* Keyboard fast-loop hint: discoverable, quiet, never read as an alert. */
+.action-hint { margin-top: 5px; font-size: 10px; color: var(--faint); letter-spacing: 0.04em; }
 /* Stage stepper: which workflow step the selected contact is on. */
 .action-steps { display: flex; align-items: center; gap: 6px; margin-right: var(--sp-2); }
 .action-step { font-size: var(--label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
@@ -245,6 +261,8 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
 .start-field > span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--dim); }
 .start-hint { font-style: normal; text-transform: none; letter-spacing: 0; color: var(--faint); }
 .start-field input, .start-field select { padding: 8px 10px; }
+.start-field input[type="checkbox"] { width: 18px; height: 18px; padding: 0;
+  accent-color: var(--blue); cursor: pointer; }
 .start-field input.is-invalid { border-color: var(--amber); color: var(--amber); }
 .start-briefing { font-size: 12px; letter-spacing: 0.06em; color: var(--green-hi);
   padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px;
@@ -284,6 +302,9 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
 .aar-ev.ev-responded .aar-decision { color: var(--green); }
 .aar-ev.ev-detect .aar-decision { color: var(--amber); }
 .aar-ev.ev-session td { color: var(--dim); }
+/* Simulated-response workflow rows: history, not scored decisions. */
+.aar-ev.ev-sim td { color: var(--dim); }
+.aar-ev.ev-sim .aar-decision { color: var(--cyan); }
 .aar-decision { color: var(--green-hi); font-variant-numeric: tabular-nums; }
 
 /* AAR error chips and counts */
@@ -291,7 +312,26 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
   background: var(--bg-3); color: var(--dim); }
 .aar-chip.is-warn { background: rgba(232,177,92,0.16); color: var(--amber); }
 .aar-chip.is-bad { background: rgba(240,113,120,0.16); color: var(--red-hi); }
+.aar-chip.is-assisted { background: rgba(56,199,255,0.14); color: var(--cyan); }
 .aar-errorcount { font-size: 12px; color: var(--dim); margin: 0 0 8px; }
+
+/* AI-assisted session labelling: the review must say the score describes the
+   assistant's run and that the session is outside competency rollups. */
+.aar-assisted { display: flex; gap: 10px; align-items: baseline; padding: 10px 12px;
+  margin-bottom: 12px; border: 1px solid var(--blue); border-radius: 6px;
+  background: rgba(57,132,246,0.1); font-size: 13px; }
+.aar-assisted strong { color: var(--blue-hi); text-transform: uppercase; letter-spacing: 0.08em;
+  font-size: 11px; white-space: nowrap; }
+.aar-assisted span { color: var(--txt); }
+
+/* Response handling: Manual vs Assisted split from the recorded aid
+   provenance. Compact by design. */
+.aar-modes { display: flex; gap: 10px; }
+.aar-mode { flex: 1; display: flex; justify-content: space-between; align-items: baseline;
+  padding: 8px 10px; background: rgba(13,17,23,0.7); border: 1px solid var(--line); border-radius: 6px; }
+.aar-mode span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+.aar-mode b { font-size: 18px; }
+.aar-mode.is-assisted b { color: var(--blue-hi); }
 
 /* AAR cumulative stats */
 .aar-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -324,7 +364,32 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
   padding: 12px 14px; }
 .dash-headline { font-size: 20px; font-weight: 650; }
 .dash-subhead { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; }
-/* Operator role selector */
+
+/* Session replay (post-session debrief): top-down reconstruction with a
+   scrubbable decision timeline. Starts paused; no auto-play. */
+#aar-replay { margin-top: 4px; }
+.rp-controls { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.rp-play, .rp-speed { min-height: 0; padding: 5px 12px; font-size: 12px; }
+.rp-time { margin-left: auto; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.rp-track { position: relative; height: 18px; border: 1px solid var(--line-soft);
+  border-radius: 10px; background: var(--bg-0); margin-bottom: var(--sp-2); }
+.rp-tick { position: absolute; top: 50%; width: 9px; height: 9px; border-radius: 50%;
+  border: 0; padding: 0; min-height: 0; transform: translate(-50%, -50%); cursor: pointer; }
+.rp-spawned { background: var(--dim); }
+.rp-detected { background: var(--amber); }
+.rp-classified { background: var(--blue-hi); }
+.rp-responded { background: var(--green); }
+.rp-missed { background: var(--red); }
+.rp-alarm { background: var(--faint); }
+.rp-none { font-size: 11px; color: var(--faint); padding-left: 10px; line-height: 18px; }
+.rp-scrub { width: 100%; margin: 0 0 var(--sp-2); padding: 0; min-height: 0; accent-color: var(--blue); }
+.rp-map { width: 100%; height: auto; display: block; border: 1px solid var(--line-soft);
+  border-radius: var(--r-md); background: var(--bg-0); }
+.rp-frame { fill: none; stroke: var(--line); stroke-width: 1; }
+.rp-north { fill: var(--dim); font-size: 13px; font-weight: 700; }
+.rp-path { fill: none; stroke-width: 1.5; opacity: 0.55; }
+.rp-dot { stroke: #fff; stroke-width: 1.5; }
+/* Operator configuration selectors (role, assistance, scenario source) */
 .start-modes { margin-bottom: 2px; }
 .start-modetitle { display: block; font-size: 10px; text-transform: uppercase;
   letter-spacing: 0.09em; color: var(--dim); margin-bottom: 6px; }
@@ -333,6 +398,12 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
   font-weight: 600; background: transparent; border: 1px solid var(--line); color: var(--dim); }
 .mode-btn.is-active { background: rgba(57,132,246,0.14); border-color: var(--blue); color: var(--blue-hi); }
 .start-modehint { margin: 8px 0 0; font-size: 11px; color: var(--dim); }
+.start-modehint.is-assisted { color: var(--blue-hi); }
+
+/* Session-history ASSISTED chip: labelled in the trainee's own history, even
+   though the session is excluded from the score trend and rollups. */
+.dash-chip { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: rgba(56,199,255,0.14); color: var(--cyan); letter-spacing: 0.06em; }
 
 /* Ground station control hints */
 #station-help { right: 12px; top: 12px; font-size: 11px; color: var(--dim); max-width: 210px; }
@@ -489,6 +560,35 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
 .sel-next { margin: var(--sp-2) 0 0; font-size: 12px; color: var(--dim); line-height: 1.55;
   padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: var(--r-md); background: var(--bg-0); }
 .sel-next b { color: var(--blue-hi); }
+/* Assessment guidance: advisory evidence framing, set apart from the action
+   line. Never a preselection -- the classification buttons stay the decision. */
+.sel-guidance { margin: var(--sp-2) 0 0; font-size: 12px; color: var(--txt); line-height: 1.55;
+  padding: 8px 10px; border: 1px solid var(--line-soft); border-left: 2px solid var(--cyan);
+  border-radius: var(--r-md); background: var(--bg-0); }
+
+/* Response assistant: the simulated-response workflow for the selected
+   contact. Simulation-only language and controls; approval never submits the
+   scored response, which stays in the action bar. */
+.ra-sec { margin-top: var(--sp-2); padding: 8px 10px; border: 1px solid var(--line-soft);
+  border-left: 2px solid var(--blue); border-radius: var(--r-md); background: var(--bg-0); }
+.ra-head { display: flex; align-items: center; gap: 8px; }
+.ra-title { font-size: var(--label); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--blue-hi); font-weight: 700; }
+.ra-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim);
+  border: 1px solid var(--line-soft); border-radius: 20px; padding: 1px 7px; }
+/* Abstract class chip on a pending proposal (e.g. "weapon-class"). */
+.ra-class-chip { display: inline-block; margin: 6px 0 0; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--amber);
+  border: 1px solid var(--line-soft); border-radius: 20px; padding: 1px 8px; }
+.ra-note { margin: 6px 0 0; font-size: 12px; color: var(--dim); line-height: 1.5; }
+.ra-measure { margin: 6px 0 0; font-size: 12px; color: var(--txt); font-weight: 600; }
+.ra-basis { margin: 4px 0 0; font-size: 12px; color: var(--dim); line-height: 1.5; }
+.ra-outcome { margin: 6px 0 0; font-size: 12px; font-weight: 700; color: var(--dim); }
+.ra-outcome.ra-gain { color: var(--green-hi); }
+.ra-outcome.ra-loss { color: var(--amber); }
+.ra-actions { display: flex; gap: 6px; margin-top: 8px; }
+.ra-sec button { margin-top: 8px; padding: 6px 12px; min-height: 30px; font-size: 11px; }
+.ra-actions button { margin-top: 0; }
 
 /* Keyboard focus must be visible on blips (SVG g elements draw no focus ring). */
 .plot-blip:focus-visible, .radar-blip:focus-visible { outline: 2px solid var(--blue-hi); outline-offset: 2px; }
@@ -516,6 +616,7 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
 @media (max-width: 920px) {
   #panel-left { flex-basis: 200px; font-size: 12px; }
   .hud-threats { max-height: 30vh; overflow-y: auto; }
+  .alerts-list { max-height: 24vh; overflow-y: auto; }
   #right-rail { width: 200px; }
   .view-bar-btn { padding: 6px 10px; font-size: 10px; }
   #actions { font-size: 12px; }
@@ -558,3 +659,21 @@ td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: le
 .dash-weaknesses em { color: var(--dim); font-style: normal; font-size: 11px; margin-left: auto; }
 .dash-subhead { margin: 14px 0 4px; font-size: 11px; text-transform: uppercase;
   letter-spacing: 0.08em; color: var(--blue-hi); }
+
+/* Track-state alerts: one attention channel for observable changes, newest
+   first. Tones mark whether the sensor picture improved (gain) or degraded
+   (loss); rows are click-to-focus like the HUD list. */
+#alerts-panel { margin-top: var(--sp-3); }
+.alerts-empty { margin: 4px 0 0; font-size: 12px; color: var(--dim); }
+.alerts-list { list-style: none; padding: 0; margin: 4px 0 0; display: flex;
+  flex-direction: column; gap: 4px; }
+.alert-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 9px;
+  border: 1px solid var(--line-soft); border-radius: var(--r-md); background: var(--bg-0);
+  font-size: 12px; cursor: pointer; transition: border-color 120ms ease, background 120ms ease; }
+.alert-row:hover { border-color: var(--blue); background: var(--bg-3); }
+.alert-row.alert-gain { border-left: 2px solid var(--green); }
+.alert-row.alert-loss { border-left: 2px solid var(--amber); }
+.alert-row.alert-info { border-left: 2px solid var(--blue); }
+.alert-time { flex: 0 0 auto; font-size: 10px; color: var(--faint);
+  font-variant-numeric: tabular-nums; }
+.alert-text { color: var(--txt); }

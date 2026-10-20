@@ -53,7 +53,12 @@ export function showDashboard(
       try {
         unitPerformance = await api.fetchUnitPerformance(unit);
       } catch (error) {
-        errors.push(`Unit rollup: ${text(error)}`);
+        // A unit with no competency sessions yet has no rollup. That includes
+        // a unit whose only sessions are AI-assisted demos, which are excluded
+        // by design: an empty state, not a load failure.
+        if (!text(error).startsWith("404 ")) {
+          errors.push(`Unit rollup: ${text(error)}`);
+        }
       }
     }
     loading = false;

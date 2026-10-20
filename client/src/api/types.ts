@@ -22,6 +22,8 @@ export interface ScenarioGenerateRequest {
   time_of_day: TimeOfDay;
   threat_count: ThreatCount;
   seed?: number | null;
+  /** Opt-in swarm grouping; the server treats omission as off. */
+  swarms?: boolean;
 }
 
 export type ScenarioSource = "procedural" | "scripted";
@@ -75,8 +77,37 @@ export interface SessionCreateRequest {
   scenario_id: string;
   /** Optional cohort grouping for unit-level performance rollups. */
   unit?: string | null;
+  /**
+   * AI-assisted sessions are labelled and excluded from competency rollups
+   * (adaptive level, unit performance); the history still lists them.
+   */
+  ai_assisted?: boolean;
 }
 export interface SessionCreated { session_id: string; status: "active"; }
+
+// --- AI decision assistant (mirrors backend/app/schemas/assistant.py) -----
+// Requests carry public observable evidence only; the answer is one abstract
+// decision from the same vocabulary the trainee can choose.
+
+export type AssistStage = "classify" | "respond";
+
+export interface AssistRequest {
+  stage: AssistStage;
+  behavior: string;
+  cue_clear?: boolean;
+  flight_pattern?: string | null;
+  speed_class?: string | null;
+  observed_via?: "visual" | "radar" | "both";
+  swarm?: boolean;
+  /** Required to respond: the assessment already submitted for the contact. */
+  classification?: string | null;
+}
+
+export interface AssistDecision {
+  stage: AssistStage;
+  decision: string;
+  source: "llm" | "rules";
+}
 
 // --- Redacted scenario view (mirrors backend/app/schemas/observation.py) ---
 // Gameplay code must use these types, never Scenario/ThreatProfile: the view
@@ -93,6 +124,9 @@ export interface PublicThreat {
   /** Observable behavior signature, or "indeterminate" when unreadable. */
   behavior: string;
   cue_clear: boolean;
+  /** Swarm membership; null for an independent contact. 0 is the lead. */
+  swarm_id: string | null;
+  swarm_index: number | null;
 }
 
 export interface PublicScenario {
@@ -238,6 +272,11 @@ export interface SessionHistoryItem {
   session_id: string;
   scenario_id: string;
   unit: string | null;
+  /**
+   * True when the session ran in AI-assisted mode. Optional so older payloads
+   * and fixtures read as manual, which is the safe default.
+   */
+  ai_assisted?: boolean;
   completed_at: string | null;
   final_score: number;
   environment: Environment;

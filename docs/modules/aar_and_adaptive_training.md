@@ -120,7 +120,23 @@ If the trainee struggles with night conditions, change night/visibility first.
 
 This makes training recommendations interpretable.
 
-## 7. Future ML option
+## 7. AI-assisted sessions
+
+The training loop can also run in a labelled AI-assisted mode (see
+`docs/modules/ai_assisted_mode.md`). Such a session produces a normal score, but
+that score describes the assistant's run, not the trainee's competency:
+
+- the AAR header carries an `AI-ASSISTED` chip and a banner, and shows per-stage
+  assistant decision counts;
+- the session stays in the trainee's history with an `ASSISTED` badge;
+- the performance profile, adaptive level, next-scenario recommendation, and
+  unit rollups exclude it;
+- the dashboard's headline statistics and score trend exclude it too, matching
+  the server rollup.
+
+Every other review and scoring behaviour is unchanged.
+
+## 8. Future ML option
 
 After enough simulated sessions, a model could estimate:
 

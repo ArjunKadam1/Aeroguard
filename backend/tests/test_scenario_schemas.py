@@ -14,6 +14,26 @@ def test_request_accepts_valid_configuration() -> None:
     )
     assert req.threat_count == 2
     assert req.seed is None
+    assert req.swarms is False
+
+
+def test_request_accepts_opt_in_swarms() -> None:
+    req = ScenarioGenerateRequest(
+        difficulty=5, environment="urban", time_of_day="night", threat_count=2,
+        swarms=True,
+    )
+    assert req.swarms is True
+
+
+def test_threat_swarm_fields_default_to_none() -> None:
+    threat = ThreatProfile(
+        id="T01",
+        classification_label="hostile",
+        expected_response="hold",
+        spawn_time=12.5,
+    )
+    assert threat.swarm_id is None
+    assert threat.swarm_index is None
 
 
 def test_request_rejects_difficulty_out_of_range() -> None:

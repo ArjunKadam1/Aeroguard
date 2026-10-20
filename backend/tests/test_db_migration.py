@@ -16,6 +16,12 @@ def test_fresh_database_has_the_unit_column() -> None:
     assert "unit" in _session_columns(engine)
 
 
+def test_fresh_database_has_the_ai_assisted_column() -> None:
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(bind=engine)
+    assert "ai_assisted" in _session_columns(engine)
+
+
 def test_migration_adds_unit_to_an_older_database() -> None:
     """The exact failure: a DB created before `unit` existed must be upgraded.
 
@@ -71,6 +77,63 @@ def test_migration_is_idempotent() -> None:
     _migrate(engine)
     _migrate(engine)
     assert "unit" in _session_columns(engine)
+    assert "ai_assisted" in _session_columns(engine)
+
+
+def test_migration_adds_ai_assisted_and_keeps_existing_rows_manual() -> None:
+    """A pre-AI database must gain the column with every row reading manual."""
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE sessions ("
+                "session_id VARCHAR PRIMARY KEY, "
+                "trainee_id VARCHAR NOT NULL, "
+                "scenario_id VARCHAR NOT NULL, "
+                "unit VARCHAR, "
+                "status VARCHAR NOT NULL, "
+                "started_at DATETIME, "
+                "completed_at DATETIME, "
+                "final_score FLOAT)"
+            )
+        )
+    assert "ai_assisted" not in _session_columns(engine)
+
+    _migrate(engine)
+    assert "ai_assisted" in _session_columns(engine)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO sessions (session_id, trainee_id, scenario_id, status) "
+                "VALUES ('SES-OLD', 'T1', 'SCN-1', 'completed')"
+            )
+        )
+        rows = connection.execute(
+            text("SELECT session_id, ai_assisted FROM sessions")
+        ).fetchall()
+    assert rows == [("SES-OLD", 0)]
+
+
+def test_migration_adds_a_single_missing_column() -> None:
+    """A DB with `unit` but not `ai_assisted` still gets the missing column."""
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE sessions ("
+                "session_id VARCHAR PRIMARY KEY, "
+                "trainee_id VARCHAR NOT NULL, "
+                "scenario_id VARCHAR NOT NULL, "
+                "unit VARCHAR, "
+                "status VARCHAR NOT NULL, "
+                "started_at DATETIME, "
+                "completed_at DATETIME, "
+                "final_score FLOAT)"
+            )
+        )
+    _migrate(engine)
+    assert "ai_assisted" in _session_columns(engine)
 
 
 def test_migration_skips_when_sessions_table_absent() -> None:

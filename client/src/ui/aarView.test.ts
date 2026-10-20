@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { AAR, EventCreateRequest, PerformanceProfile, RecommendResponse } from "../api/types";
 import {
   assessmentBlock,
+  assistBlock,
+  assistedBanner,
   barClass,
   buildAarHtml,
   contactCards,
@@ -16,6 +18,7 @@ import {
   performanceBlock,
   performanceStats,
   recommendationBlock,
+  responseModesBlock,
   scoreHero,
   scoreRows,
   timelineBlock,
@@ -132,6 +135,128 @@ describe("score bars", () => {
   });
 });
 
+describe("response handling split", () => {
+  const withAid: AAR = {
+    ...aar,
+    timeline: [
+      ...aar.timeline,
+      {
+        type: "RESPONSE_SUBMITTED", timestamp_ms: 9000, threat_id: "T02",
+        payload: { response: "monitor", aid: "assisted" },
+      },
+      {
+        type: "RESPONSE_SUBMITTED", timestamp_ms: 12000, threat_id: "T03",
+        payload: { response: "hold", aid: "manual" },
+      },
+    ],
+  };
+
+  it("splits manual from assisted decisions and notes unrecorded responses", () => {
+    const html = responseModesBlock(withAid);
+    expect(html).toContain("Response handling");
+    expect(html).toContain("<span>Manual</span><b>1</b>");
+    expect(html).toContain("<span>Assisted</span><b>1</b>");
+    // The base fixture's T01 response predates the provenance stamp.
+    expect(html).toContain("1 response recorded before response-mode tracking.");
+  });
+
+  it("summarizes the simulation classes that were requested", () => {
+    const withSimulations: AAR = {
+      ...aar,
+      timeline: [
+        ...aar.timeline,
+        {
+          type: "RESPONSE_SUBMITTED", timestamp_ms: 8000, threat_id: null,
+          payload: {
+            workflow: "response-simulation", phase: "proposal", threat: "T01",
+            response_class: "weapon-class",
+          },
+        },
+        {
+          type: "RESPONSE_SUBMITTED", timestamp_ms: 8500, threat_id: null,
+          payload: {
+            workflow: "response-simulation", phase: "proposal", threat: "T02",
+            response_class: "mitigation",
+          },
+        },
+      ],
+    };
+    const html = responseModesBlock(withSimulations);
+    expect(html).toContain("Simulations requested: mitigation 1");
+    expect(html).toContain("weapon-class 1");
+    // Without any proposal records the line is omitted entirely.
+    expect(responseModesBlock(withAid)).not.toContain("Simulations requested");
+  });
+
+  it("shows an empty state when no responses were recorded", () => {
+    expect(responseModesBlock({ ...aar, timeline: [] })).toContain("No responses recorded");
+  });
+
+  it("renders the split inside the full review", () => {
+    expect(buildAarHtml(aar, null, null, false)).toContain("Response handling");
+  });
+});
+
+describe("AI-assisted session labelling", () => {
+  const header = {
+    scenarioId: "SCN-000042", environment: "urban", timeOfDay: "night",
+    difficulty: 6, durationSeconds: 150, threatCount: 2, unit: null,
+  };
+
+  const assisted: AAR = {
+    ...aar,
+    timeline: [
+      {
+        type: "THREAT_DETECTED", timestamp_ms: 5200, threat_id: "T01",
+        payload: { aid: "assisted", by: "assistant" },
+      },
+      {
+        type: "CLASSIFICATION_SUBMITTED", timestamp_ms: 6100, threat_id: "T01",
+        payload: { label: "hostile", aid: "assisted", by: "assistant" },
+      },
+      {
+        type: "RESPONSE_SUBMITTED", timestamp_ms: 7400, threat_id: "T01",
+        payload: { response: "hold", aid: "assisted", by: "assistant" },
+      },
+    ],
+  };
+
+  it("marks the hero header with an AI-ASSISTED chip", () => {
+    expect(scoreHero(aar, { ...header, assisted: true })).toContain("AI-ASSISTED");
+    expect(scoreHero(aar, header)).not.toContain("AI-ASSISTED");
+  });
+
+  it("shows the labelling banner only for assisted sessions", () => {
+    expect(assistedBanner({ ...header, assisted: true })).toContain("excluded from competency");
+    expect(assistedBanner(header)).toBe("");
+    expect(assistedBanner(null)).toBe("");
+  });
+
+  it("renders per-stage assistant decision counts for an assisted session", () => {
+    const html = assistBlock(assisted, { ...header, assisted: true });
+    expect(html).toContain("Assistant decisions");
+    expect(html).toContain("<span>Detected</span><b>1/1</b>");
+    expect(html).toContain("<span>Classified</span><b>1/1</b>");
+    expect(html).toContain("<span>Responded</span><b>1/1</b>");
+    // A failed simulated measure is a scenario condition, not a decision error.
+    expect(html).toContain("the same scenario resolves identically in a manual session");
+  });
+
+  it("renders no assistant block for a manual session", () => {
+    expect(assistBlock(aar, header)).toBe("");
+    expect(assistBlock(aar, null)).toBe("");
+  });
+
+  it("wires the banner and block into the full review", () => {
+    const assistedHtml = buildAarHtml(assisted, null, null, false, { ...header, assisted: true });
+    expect(assistedHtml).toContain("AI-assisted session");
+    expect(assistedHtml).toContain("Assistant decisions");
+    const manualHtml = buildAarHtml(aar, null, null, false, header);
+    expect(manualHtml).not.toContain("AI-assisted session");
+    expect(manualHtml).not.toContain("Assistant decisions");
+  });
+});
+
 describe("timeline", () => {
   it("renders every recorded event", () => {
     const html = timelineRows(timeline);
@@ -184,6 +309,40 @@ describe("timeline", () => {
 
   it("wraps the timeline in its own card", () => {
     expect(timelineBlock(aar)).toContain("Timeline");
+  });
+
+  it("labels simulated-response workflow records by their phase", () => {
+    const html = timelineRows([
+      {
+        type: "RESPONSE_SUBMITTED" as const, timestamp_ms: 3000, threat_id: null,
+        payload: {
+          workflow: "response-simulation", phase: "proposal", threat: "T01",
+          measure: "simulated controlled mitigation",
+        },
+      },
+      {
+        type: "RESPONSE_SUBMITTED" as const, timestamp_ms: 8000, threat_id: null,
+        payload: {
+          workflow: "response-simulation", phase: "completed", threat: "T01",
+          outcome: "neutralized",
+          cause: "The simulated measure resolved under clear visibility and high sensor fidelity.",
+        },
+      },
+    ]);
+    expect(html).toContain("Simulation requested");
+    expect(html).toContain("Simulation resolved");
+    expect(html).not.toContain("Response chosen");
+    expect(html).toContain("ev-sim");
+    expect(html).toContain("simulated controlled mitigation");
+    expect(html).toContain("neutralized — The simulated measure resolved");
+    // The contact comes from the payload: two rows, both attributed to T01.
+    expect(html.match(/T01/g)).toHaveLength(2);
+  });
+
+  it("keeps scored responses labeled as decisions, not simulations", () => {
+    const html = timelineRows(timeline);
+    expect(html).toContain("Response chosen");
+    expect(html).not.toContain("Simulation requested");
   });
 });
 

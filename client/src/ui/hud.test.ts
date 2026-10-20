@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PublicScenario, PublicThreat } from "../api/types";
-import { buildHudHtml, threatDotColor, type HudThreatState } from "../ui/hud";
+import { buildHudHtml, prioritySorted, threatDotColor, type HudThreatState } from "../ui/hud";
 
 const LEGEND = {
   "steady-transit": "steady, level flight — often friendly",
@@ -12,6 +12,7 @@ function threat(id: string, behavior = "steady-transit", spawn_time = 1): Public
     id, spawn_time, speed_class: "medium", visibility_class: "clear",
     flight_pattern: "straight-transit",
     behavior, cue_clear: behavior !== "indeterminate",
+    swarm_id: null, swarm_index: null,
   };
 }
 
@@ -179,5 +180,25 @@ describe("threatDotColor", () => {
     expect(threatDotColor("T01")).toBe(threatDotColor("T01"));
     const colors = new Set(["T01", "T02", "T03", "T04", "T05"].map(threatDotColor));
     expect(colors.size).toBeGreaterThan(1);
+  });
+});
+
+describe("prioritySorted", () => {
+  it("keeps unresolved contacts in arrival order and sinks resolved ones", () => {
+    const rows = states(
+      ["T01", "responded"],
+      ["T02", "classified"],
+      ["T03", "spawned"],
+      ["T04", "responded"],
+      ["T05", "detected"],
+    );
+    expect(prioritySorted(rows).map((row) => row.id)).toEqual(["T02", "T03", "T05", "T01", "T04"]);
+  });
+
+  it("does not mutate the array it is given", () => {
+    const rows = states(["T01", "spawned"], ["T02", "responded"]);
+    const copy = [...rows];
+    prioritySorted(rows);
+    expect(rows).toEqual(copy);
   });
 });

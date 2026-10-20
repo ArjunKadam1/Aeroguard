@@ -27,6 +27,10 @@ class PublicThreat(BaseModel):
     behavior: str
     # True when conditions allowed a clean read; False means "indeterminate".
     cue_clear: bool
+    # Observable group membership: these contacts fly as one formation. Never
+    # an answer -- grouping is visible motion, like the flight pattern.
+    swarm_id: str | None = None
+    swarm_index: int | None = Field(default=None, ge=0)
 
 
 class PublicScenario(BaseModel):

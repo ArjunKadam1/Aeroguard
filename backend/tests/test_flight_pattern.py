@@ -43,12 +43,50 @@ def test_pattern_stream_never_perturbs_labels_spawns_or_speeds() -> None:
 
 
 def test_pattern_vocabulary_is_covered_across_seeds() -> None:
+    # Patterns are drawn within the residual budget, so full vocabulary needs
+    # room: difficulty 7 rural/day/1 leaves residual 6, eligible for everything.
     seen = set()
     for seed in range(300):
-        for threat in generate_scenario(_request(), seed).threats:
+        for threat in generate_scenario(_request(difficulty=7, environment="rural", time_of_day="day", threat_count=1), seed).threats:
             assert threat.flight_pattern is not None
             seen.add(threat.flight_pattern)
     assert seen == set(FlightPattern)
+
+
+def test_low_difficulty_flies_calm_patterns_only() -> None:
+    # Residual 0 (difficulty == fixed costs) leaves no motion budget.
+    from app.services.scenario_generator import PATTERN_MOTION
+    for seed in range(100):
+        for threat in generate_scenario(_request(), seed).threats:
+            assert threat.flight_pattern is not None
+            assert PATTERN_MOTION[threat.flight_pattern] == 0
+
+
+def test_motion_cost_is_bounded_and_missing_safe() -> None:
+    from app.services.scenario_generator import motion_factor, pattern_motion
+    assert pattern_motion([]) == 0
+    assert pattern_motion([None]) == 0
+    assert pattern_motion([FlightPattern.straight_transit]) == 0
+    assert pattern_motion([FlightPattern.wide_weave]) == 1
+    assert pattern_motion([FlightPattern.erratic_jink]) == 2
+    assert pattern_motion([FlightPattern.erratic_jink, FlightPattern.erratic_jink]) == 2
+
+
+def test_declared_difficulty_holds_with_motion_priced_in() -> None:
+    from app.services.scenario_generator import compute_difficulty
+    roomy = dict(difficulty=8, environment="rural", time_of_day="day", threat_count=2)
+    for seed in range(200):
+        for request in (_request(), ScenarioGenerateRequest(**roomy)):
+            scenario = generate_scenario(request, seed)
+            assert compute_difficulty(
+                environment=scenario.environment,
+                time_of_day=scenario.time_of_day,
+                threat_count=len(scenario.threats),
+                visibility=scenario.visibility,
+                sensor_quality=scenario.sensor_quality,
+                duration_seconds=scenario.duration_seconds,
+                threats=scenario.threats,
+            ) == request.difficulty
 
 
 def test_patterns_are_independent_of_labels() -> None:

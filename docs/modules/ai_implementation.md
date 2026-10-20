@@ -109,7 +109,18 @@ night scenarios are recommended before increasing difficulty.
 
 The LLM should not be the source of score truth.
 
-## 7. Principle
+## 7. Optional decision assistant
+
+The labelled AI-assisted mode adds one optional use beyond narration: a decision
+assistant that answers a single classification or response question from public
+observable evidence. It is implemented as a deterministic rule engine with an
+optional OpenAI-compatible LLM path; any failure falls back to the rules. Its
+output is restricted to the existing abstract vocabulary, decisions still pass
+through the normal session gates, and assisted sessions are excluded from
+competency scoring. It never sees the hidden label or expected response, and it
+never becomes a source of score truth. See `docs/modules/ai_assisted_mode.md`.
+
+## 8. Principle
 
 `Measured events -> deterministic metrics -> adaptive logic`
 

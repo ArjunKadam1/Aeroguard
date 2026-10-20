@@ -16,6 +16,52 @@ class ScenarioValidationError(ValueError):
     """Raised when a scenario violates a validation rule."""
 
 
+def _validate_swarms(scenario: Scenario) -> None:
+    """Relational rules for opt-in swarm membership.
+
+    Grouping is observable behavior, not an answer: members must be a coherent
+    group (shared identity, pattern, spawn and speed) so the trainee sees one
+    formation and every member remains a separately scored contact.
+    """
+    groups: dict[str, list] = {}
+    for threat in scenario.threats:
+        if threat.swarm_id is None and threat.swarm_index is None:
+            continue
+        if threat.swarm_id is None or threat.swarm_index is None:
+            raise ScenarioValidationError(
+                f"threat {threat.id} must set both swarm_id and swarm_index"
+            )
+        if not threat.swarm_id:
+            raise ScenarioValidationError(f"threat {threat.id} has an empty swarm_id")
+        if threat.swarm_index < 0:
+            raise ScenarioValidationError(
+                f"threat {threat.id} has a negative swarm_index"
+            )
+        groups.setdefault(threat.swarm_id, []).append(threat)
+
+    for swarm_id, members in groups.items():
+        if len(members) < 2:
+            raise ScenarioValidationError(
+                f"swarm {swarm_id} needs at least two members"
+            )
+        indices = sorted(threat.swarm_index for threat in members)
+        if indices != list(range(len(members))):
+            raise ScenarioValidationError(
+                f"swarm {swarm_id} indices must be contiguous from 0"
+            )
+        for field in (
+            "classification_label",
+            "expected_response",
+            "flight_pattern",
+            "spawn_time",
+            "speed_class",
+        ):
+            if len({getattr(threat, field) for threat in members}) != 1:
+                raise ScenarioValidationError(
+                    f"swarm {swarm_id} members must share {field}"
+                )
+
+
 def validate_scenario(scenario: Scenario) -> None:
     if scenario.duration_seconds <= 0:
         raise ScenarioValidationError("duration_seconds must be > 0")
@@ -46,6 +92,8 @@ def validate_scenario(scenario: Scenario) -> None:
                 f"{threat.classification_label.value}"
             )
 
+    _validate_swarms(scenario)
+
     computed = compute_difficulty(
         environment=scenario.environment,
         time_of_day=scenario.time_of_day,
@@ -53,6 +101,7 @@ def validate_scenario(scenario: Scenario) -> None:
         visibility=scenario.visibility,
         sensor_quality=scenario.sensor_quality,
         duration_seconds=scenario.duration_seconds,
+        threats=scenario.threats,
     )
     if computed != scenario.difficulty:
         raise ScenarioValidationError(

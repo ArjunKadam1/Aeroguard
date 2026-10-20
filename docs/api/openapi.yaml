@@ -257,6 +257,31 @@ paths:
           description: Unknown trainee_id
         "422":
           description: Invalid request body
+  /api/v1/assist/decide:
+    post:
+      summary: One abstract decision from the optional AI decision assistant
+      operationId: assistDecide
+      description: >
+        The assistant answers a single classification or response decision from
+        public observable evidence only. It never receives the hidden label or
+        expected response, and its answer is advisory: the client still applies
+        it through the normal session gates and records assist provenance.
+        Assisted sessions are labelled and excluded from competency rollups.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistRequest"
+      responses:
+        "200":
+          description: One decision from the fixed abstract vocabulary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistDecision"
+        "422":
+          description: Invalid stage, evidence, or missing classification for respond
 components:
     schemas:
       ScenarioGenerateRequest:
@@ -279,6 +304,15 @@ components:
           seed:
             type: integer
             description: Optional; server generates one when omitted.
+          swarms:
+            type: boolean
+            default: false
+            description: >
+              Opt-in grouping. When true, the requested contacts are partitioned
+              into swarms that fly as one formation. The contact count, the
+              difficulty model, and the scoring denominators are unchanged.
+              Off by default so existing seeds keep producing identical
+              scenarios.
       Scenario:
         type: object
         required: [scenario_id, seed, generator_version, difficulty, environment, time_of_day, visibility, sensor_quality, duration_seconds, threats]
@@ -347,6 +381,18 @@ components:
             description: >
               Assigned trajectory, independent of the hidden classification.
               Observable motion, never an answer.
+          swarm_id:
+            type: string
+            nullable: true
+            description: >
+              Swarm membership id, or null for an independent contact. Contacts
+              sharing an id fly as one formation. Observable motion, never an
+              answer.
+          swarm_index:
+            type: integer
+            minimum: 0
+            nullable: true
+            description: Position inside the swarm; 0 is the formation lead.
       PublicThreat:
         type: object
         required: [id, spawn_time, behavior, cue_clear]
@@ -378,6 +424,18 @@ components:
           cue_clear:
             type: boolean
             description: True when conditions allowed a clean signature read.
+          swarm_id:
+            type: string
+            nullable: true
+            description: >
+              Swarm membership id, or null for an independent contact. Contacts
+              sharing an id fly as one formation. Observable motion, never an
+              answer.
+          swarm_index:
+            type: integer
+            minimum: 0
+            nullable: true
+            description: Position inside the swarm; 0 is the formation lead.
       PublicScenario:
         type: object
         required: [scenario_id, seed, observation_version, difficulty, environment, time_of_day, visibility, sensor_quality, duration_seconds, threats, cue_legend]
@@ -470,6 +528,14 @@ components:
                 Optional cohort grouping used by GET /units/{unit}/performance for
                 unit-level rollups across repeated sessions.
               example: ALPHA-1
+            ai_assisted:
+              type: boolean
+              default: false
+              description: >
+                Opt-in AI-assisted mode: the decision assistant runs the
+                detection, classification and response loop. Such sessions are
+                labelled in the trainee's history and excluded from competency
+                scoring (adaptive level, recommendations, unit rollups).
       SessionCreated:
         type: object
         required: [session_id, status]
@@ -514,6 +580,63 @@ components:
             type: string
           accepted:
             type: boolean
+      AssistRequest:
+        type: object
+        required: [stage, behavior]
+        properties:
+          stage:
+            type: string
+            enum: [classify, respond]
+          behavior:
+            type: string
+            description: >
+              Observable behavior signature exactly as the trainee sees it
+              (never the hidden label).
+            example: orbiting
+          cue_clear:
+            type: boolean
+            default: false
+          flight_pattern:
+            type: string
+            nullable: true
+          speed_class:
+            type: string
+            nullable: true
+            description: One of slow, medium, fast.
+          observed_via:
+            type: string
+            enum: [visual, radar, both]
+            default: visual
+          swarm:
+            type: boolean
+            default: false
+            description: The contact flies as part of a formation group.
+          classification:
+            type: string
+            nullable: true
+            enum: [friendly, civilian, unknown, suspicious, hostile]
+            description: >
+              Required for the respond stage: the assessment already submitted
+              for the contact, so the response doctrine follows it.
+      AssistDecision:
+        type: object
+        required: [stage, decision, source]
+        properties:
+          stage:
+            type: string
+            enum: [classify, respond]
+          decision:
+            type: string
+            description: >
+              For classify, one of friendly, civilian, unknown, suspicious,
+              hostile. For respond, one of monitor, track, report, hold.
+          source:
+            type: string
+            enum: [llm, rules]
+            description: >
+              rules when the deterministic engine answered (offline default or
+              LLM fallback); llm only when a configured model answered within
+              the fixed vocabulary.
       CompleteResponse:
         type: object
         required: [session_id, detection_score, classification_score, response_score, timing_score, penalty, final_score, aar_available, scoring_version]
@@ -655,6 +778,11 @@ components:
           unit:
             type: string
             nullable: true
+          ai_assisted:
+            type: boolean
+            description: >
+              True when the session ran in AI-assisted mode. Display-only:
+              excluded from adaptive and unit rollups, still listed here.
           completed_at:
             type: string
             nullable: true

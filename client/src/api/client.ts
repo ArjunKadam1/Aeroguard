@@ -1,5 +1,7 @@
 import type {
   AAR,
+  AssistDecision,
+  AssistRequest,
   CompleteResponse,
   EventCreateRequest,
   EventCreated,
@@ -29,6 +31,8 @@ export interface ApiClient {
   recommendTraining(request: RecommendRequest): Promise<RecommendResponse>;
   listSessions(traineeId: string): Promise<SessionHistoryItem[]>;
   fetchUnitPerformance(unit: string): Promise<UnitPerformance>;
+  /** One abstract decision from the optional AI assistant. */
+  assistDecide(request: AssistRequest): Promise<AssistDecision>;
 }
 
 export function createApiClient(
@@ -82,5 +86,6 @@ export function createApiClient(
     recommendTraining: (request) => post<RecommendResponse>('/training/recommend', request),
     listSessions: (traineeId) => get<SessionHistoryItem[]>('/trainees/' + encodeURIComponent(traineeId) + '/sessions'),
     fetchUnitPerformance: (unit) => get<UnitPerformance>('/units/' + encodeURIComponent(unit) + '/performance'),
+    assistDecide: (request) => post<AssistDecision>('/assist/decide', request),
   };
 }

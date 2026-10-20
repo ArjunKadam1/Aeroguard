@@ -81,6 +81,7 @@ def test_difficulty_equals_requested_and_model() -> None:
             visibility=scenario.visibility,
             sensor_quality=scenario.sensor_quality,
             duration_seconds=scenario.duration_seconds,
+            threats=scenario.threats,
         )
         == 8
     )
@@ -108,3 +109,112 @@ def test_infeasible_high_difficulty_raises() -> None:
             _request(difficulty=10, environment="rural", time_of_day="day", threat_count=1),
             1,
         )
+
+
+# --- Swarm grouping ---------------------------------------------------------
+
+
+def _swarm_request(**overrides) -> ScenarioGenerateRequest:
+    return _request(swarms=True, **overrides)
+
+
+def test_swarms_are_off_by_default() -> None:
+    scenario = generate_scenario(_request(difficulty=8, threat_count=5), 4242)
+    assert all(t.swarm_id is None and t.swarm_index is None for t in scenario.threats)
+
+
+def test_swarm_grouping_is_deterministic() -> None:
+    assert generate_scenario(_swarm_request(difficulty=8, threat_count=5), 4242) == (
+        generate_scenario(_swarm_request(difficulty=8, threat_count=5), 4242)
+    )
+
+
+def test_swarm_groups_are_coherent() -> None:
+    scenario = generate_scenario(
+        _swarm_request(difficulty=10, environment="rural", time_of_day="day", threat_count=5),
+        777,
+    )
+    groups: dict[str, list] = {}
+    for threat in scenario.threats:
+        if threat.swarm_id is not None:
+            groups.setdefault(threat.swarm_id, []).append(threat)
+    assert groups, "opt-in swarms must produce at least one group"
+    for members in groups.values():
+        assert len(members) >= 2
+        assert sorted(t.swarm_index for t in members) == list(range(len(members)))
+        for field in (
+            "classification_label",
+            "expected_response",
+            "flight_pattern",
+            "spawn_time",
+            "speed_class",
+        ):
+            assert len({getattr(t, field) for t in members}) == 1
+
+
+def test_swarms_keep_count_conditions_and_difficulty_unchanged() -> None:
+    for seed in range(30):
+        plain = generate_scenario(_request(difficulty=8, threat_count=5), seed)
+        shaped = generate_scenario(_swarm_request(difficulty=8, threat_count=5), seed)
+        assert len(shaped.threats) == len(plain.threats) == 5
+        assert shaped.visibility == plain.visibility
+        assert shaped.sensor_quality == plain.sensor_quality
+        assert shaped.duration_seconds == plain.duration_seconds
+        assert shaped.difficulty == plain.difficulty == 8
+        assert (
+            compute_difficulty(
+                environment=shaped.environment,
+                time_of_day=shaped.time_of_day,
+                threat_count=len(shaped.threats),
+                visibility=shaped.visibility,
+                sensor_quality=shaped.sensor_quality,
+                duration_seconds=shaped.duration_seconds,
+                threats=shaped.threats,
+            )
+            == 8
+        )
+
+
+def test_swarms_keep_conditions_with_a_motion_budget() -> None:
+    # Residual 5 means demanding patterns can be drawn: group pattern sharing
+    # must not change the motion cost or the condition allocation.
+    for seed in range(30):
+        plain = generate_scenario(
+            _request(difficulty=10, environment="rural", time_of_day="day", threat_count=5),
+            seed,
+        )
+        shaped = generate_scenario(
+            _swarm_request(
+                difficulty=10, environment="rural", time_of_day="day", threat_count=5
+            ),
+            seed,
+        )
+        assert shaped.visibility == plain.visibility
+        assert shaped.sensor_quality == plain.sensor_quality
+        assert shaped.duration_seconds == plain.duration_seconds
+        assert compute_difficulty(
+            environment=shaped.environment,
+            time_of_day=shaped.time_of_day,
+            threat_count=len(shaped.threats),
+            visibility=shaped.visibility,
+            sensor_quality=shaped.sensor_quality,
+            duration_seconds=shaped.duration_seconds,
+            threats=shaped.threats,
+        ) == 10
+
+
+def test_single_contact_requests_never_form_a_swarm() -> None:
+    scenario = generate_scenario(
+        _swarm_request(difficulty=6, environment="rural", time_of_day="day", threat_count=1),
+        11,
+    )
+    assert all(t.swarm_id is None for t in scenario.threats)
+
+
+def test_swarm_identity_keeps_response_mapping_valid() -> None:
+    scenario = generate_scenario(
+        _swarm_request(difficulty=10, environment="rural", time_of_day="day", threat_count=5),
+        42,
+    )
+    for threat in scenario.threats:
+        assert threat.expected_response == LABEL_TO_RESPONSE[threat.classification_label]
